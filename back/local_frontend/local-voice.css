@@ -1,0 +1,32 @@
+.local-voice-consent {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0 16px;
+  color: #405574;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.local-voice-consent input {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.local-voice-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff1f1;
+  color: #a92222;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.local-voice-message {
+  margin: 0;
+  padding: 12px 0;
+  color: #606c80;
+  font-size: 14px;
+}

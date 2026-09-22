@@ -1,0 +1,5 @@
+home_id,date,event_time,subject_type,subject,metric_code,value,unit,baseline_value,delta_value,baseline_days,data_status,evidence
+home_a,2026-09-20,2026-09-20T10:00:00+09:00,behavior,walking,duration,12.5,minute,10,2.5,7,estimated,motion aggregation
+home_a,2026-09-20,2026-09-20T08:00:00+09:00,appliance,refrigerator,door_open,1,count,0.8,0.2,7,observed,door sensor
+home_b,2026-09-20,2026-09-20T09:00:00+09:00,behavior,sleep,duration,7,hour,7,,7,observed,sleep sensor
+

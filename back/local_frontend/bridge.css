@@ -1,0 +1,110 @@
+.local-appliance-controls {
+  padding: 12px 20px;
+  background: #e7edf5;
+  border-bottom: 1px solid #cbd5e1;
+  color: #182434;
+}
+
+.local-appliance-controls form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+}
+
+.local-appliance-controls label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.local-appliance-controls input {
+  width: 100%;
+  height: 32px;
+  padding: 4px 5px;
+  border: 1px solid #9aa9b9;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 11px;
+}
+
+.local-appliance-controls button {
+  height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: #405574;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.local-appliance-controls p {
+  min-height: 16px;
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.local-appliance-controls + .neulbom-page .device-status {
+  max-width: 145px;
+  align-items: flex-start;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.local-appliance-controls + .neulbom-page .device-status img {
+  display: none;
+}
+
+.local-appliance-controls + .neulbom-page .appliance-card-main {
+  gap: 6px;
+}
+
+.local-appliance-controls + .neulbom-page .device-identity,
+.local-appliance-controls + .neulbom-page .device-copy {
+  min-width: 0;
+}
+
+.local-appliance-controls + .neulbom-page .device-identity {
+  flex: 1;
+}
+
+.local-appliance-controls + .neulbom-page .device-metric {
+  width: 94px;
+  flex: 0 0 94px;
+  align-items: flex-end;
+}
+
+.local-appliance-controls + .neulbom-page .device-metric > span {
+  font-size: 10px;
+}
+
+.local-appliance-controls + .neulbom-page .device-metric strong {
+  font-size: 20px;
+}
+
+.local-appliance-controls + .neulbom-page .device-metric em {
+  font-size: 14px;
+}
+
+.local-appliance-controls + .neulbom-page .device-history {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.local-appliance-controls + .neulbom-page .device-history-row {
+  gap: 6px;
+}
+
+.local-appliance-controls + .neulbom-page .device-history-row time {
+  flex: 0 0 135px;
+}
+
+.local-appliance-controls + .neulbom-page .device-history-row span {
+  text-align: right;
+}

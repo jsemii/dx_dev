@@ -1,0 +1,10 @@
+[project]
+name = "daily-report"
+version = "0.1.0"
+description = "Generate validated Korean daily reports from PostgreSQL daily records."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["integration: calls the real OpenAI API"]

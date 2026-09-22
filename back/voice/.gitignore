@@ -1,0 +1,12 @@
+.gradle/
+build/
+.idea/
+.vscode/
+*.iml
+secrets/
+.env
+.env.*
+application-local.properties
+*.webm
+*.wav
+*.mp3

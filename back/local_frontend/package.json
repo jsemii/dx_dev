@@ -1,0 +1,15 @@
+{
+  "name": "wifi-care-local-appliance-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.mjs",
+    "test": "node --test bridgeData.test.mjs reportDate.test.mjs reportTransform.test.mjs contentUploadErrors.test.mjs contentCrud.test.mjs alarmApi.test.mjs localVoice.test.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "5.0.2",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "vite": "7.3.6"
+  }
+}

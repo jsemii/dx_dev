@@ -1,0 +1,5 @@
+home_id,date,event_time,subject_type,subject,metric_code,value,unit,baseline_value,delta_value,baseline_days,data_status,evidence
+demo_solo_house009,2023-09-23,2023-09-23T08:30:00+09:00,appliance,refrigerator,door_open,1,count,0.8,0.2,7,observed,refrigerator door sensor event
+demo_solo_house009,2023-09-23,2023-09-23T10:15:00+09:00,behavior,walking,duration,12.5,minute,10,2.5,7,estimated,aggregated motion sensor rule
+demo_solo_house009,2023-09-23,2023-09-23T19:00:00+09:00,appliance,tv,power_on,1,count,1,0,7,synthetic,demonstration row
+
