@@ -1,0 +1,91 @@
+.smooth-toggle {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  outline: 0;
+  background: #8291a5;
+  cursor: pointer;
+  transition:
+    background-color 260ms cubic-bezier(0.22, 0.8, 0.28, 1),
+    box-shadow 180ms ease,
+    opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.smooth-toggle--checked {
+  background: #4c5de9;
+}
+
+.smooth-toggle__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(17 17 17 / 18%);
+  transform: translateX(0);
+  transition: transform 260ms cubic-bezier(0.22, 0.8, 0.28, 1);
+  will-change: transform;
+}
+
+.smooth-toggle--checked .smooth-toggle__thumb {
+  transform: translateX(18px);
+}
+
+.smooth-toggle--small {
+  width: 36px;
+  height: 20px;
+  flex-basis: 36px;
+  border-radius: 10px;
+}
+
+.smooth-toggle--small .smooth-toggle__thumb {
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+}
+
+.smooth-toggle--small.smooth-toggle--checked .smooth-toggle__thumb {
+  transform: translateX(16px);
+}
+
+.smooth-toggle:focus-visible {
+  box-shadow: 0 0 0 3px rgb(76 93 233 / 24%);
+}
+
+.smooth-toggle:active .smooth-toggle__thumb {
+  transform: translateX(1px) scale(0.94);
+}
+
+.smooth-toggle--checked:active .smooth-toggle__thumb {
+  transform: translateX(17px) scale(0.94);
+}
+
+.smooth-toggle--small:active .smooth-toggle__thumb {
+  transform: translateX(1px) scale(0.94);
+}
+
+.smooth-toggle--small.smooth-toggle--checked:active .smooth-toggle__thumb {
+  transform: translateX(15px) scale(0.94);
+}
+
+.smooth-toggle:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smooth-toggle,
+  .smooth-toggle__thumb {
+    transition-duration: 0.01ms;
+  }
+}
