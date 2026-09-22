@@ -1,0 +1,137 @@
+.daily-life-care-page {
+  width: 100%;
+  min-height: 100%;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.daily-life-care-header {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  background: #eff1f4;
+}
+
+.daily-life-care-header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.daily-life-care-header button:active {
+  opacity: 0.55;
+}
+
+.daily-life-care-header img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.daily-life-care-header h1 {
+  width: 317px;
+  margin: 0;
+  color: #000;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.daily-life-care-content {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.daily-life-care-intro {
+  display: flex;
+  width: 353px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.daily-life-care-illustration {
+  position: relative;
+  width: 187px;
+  height: 160px;
+  flex: 0 0 160px;
+  overflow: hidden;
+}
+
+.daily-life-care-illustration img {
+  position: absolute;
+  top: 4.3%;
+  left: -2.14%;
+  display: block;
+  width: 104.28%;
+  height: 91.41%;
+  max-width: none;
+}
+
+.daily-life-care-copy {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #111;
+  text-align: center;
+}
+
+.daily-life-care-copy h2,
+.daily-life-care-copy p {
+  margin: 0;
+}
+
+.daily-life-care-copy h2 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.35px;
+}
+
+.daily-life-care-copy p {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.15px;
+}
+
+.daily-life-care-setting {
+  display: flex;
+  width: 353px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.daily-life-care-setting > span {
+  color: #111;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.35px;
+}

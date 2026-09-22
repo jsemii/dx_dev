@@ -1,0 +1,366 @@
+.meal-medication-page,
+.reminder-editor-page {
+  width: 100%;
+  min-height: 100%;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.meal-medication-header {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  background: #eff1f4;
+}
+
+.meal-medication-header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.meal-medication-header button:active {
+  opacity: 0.55;
+}
+
+.meal-medication-header img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.meal-medication-header h1 {
+  width: 317px;
+  margin: 0;
+  color: #000;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.meal-medication-content {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.meal-medication-intro {
+  display: flex;
+  width: 353px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.meal-medication-illustration {
+  position: relative;
+  width: 187px;
+  height: 160px;
+  flex: 0 0 160px;
+  overflow: hidden;
+}
+
+.meal-medication-illustration img {
+  position: absolute;
+  top: 6.17%;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 87.66%;
+  max-width: none;
+}
+
+.meal-medication-copy {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #111;
+  text-align: center;
+}
+
+.meal-medication-copy h2,
+.meal-medication-copy p {
+  margin: 0;
+}
+
+.meal-medication-copy h2 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.35px;
+}
+
+.meal-medication-copy p {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.15px;
+}
+
+.meal-medication-master-setting {
+  display: flex;
+  width: 353px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.meal-medication-master-setting > span {
+  color: #111;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.35px;
+}
+
+.reminder-sections {
+  display: flex;
+  width: 353px;
+  flex-direction: column;
+  gap: 16px;
+  animation: reminder-sections-enter 280ms cubic-bezier(0.22, 0.8, 0.28, 1);
+  transform-origin: top;
+}
+
+.reminder-section {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.reminder-section-header {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.reminder-section-header h2 {
+  margin: 0;
+  color: #111;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.reminder-section-divider {
+  width: 100%;
+  height: 1px;
+  background: #e9ebef;
+}
+
+.reminder-list {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reminder-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  color: #616c7e;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1;
+  transition: opacity 220ms ease;
+}
+
+.reminder-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reminder-row time {
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+.add-reminder-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 18px;
+  background: #eff1f4;
+  color: #4c5de9;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: opacity 220ms ease, transform 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.add-reminder-button img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.add-reminder-button:active {
+  transform: scale(0.99);
+}
+
+.add-reminder-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+}
+
+.reminder-section--disabled .reminder-row {
+  opacity: 0.48;
+}
+
+.reminder-editor-page {
+  padding-bottom: 112px;
+}
+
+.reminder-editor-body {
+  width: 353px;
+  margin: 0 auto;
+}
+
+.reminder-editor-card {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.reminder-name-field {
+  display: flex;
+  width: 315px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.reminder-name-field > span {
+  color: #111;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.reminder-name-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #405574;
+  border-radius: 4px;
+  outline: 0;
+  background: #fff;
+  color: #111;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.reminder-name-field input::placeholder {
+  color: #616c7e;
+  opacity: 1;
+}
+
+.reminder-name-field input:focus {
+  box-shadow: 0 0 0 2px rgb(64 85 116 / 16%);
+}
+
+.reminder-editor-bottom-action {
+  position: fixed;
+  z-index: 8;
+  right: 0;
+  bottom: 0;
+  left: 50%;
+  display: flex;
+  width: min(100%, 393px);
+  padding: 12px 20px max(39px, env(safe-area-inset-bottom));
+  justify-content: center;
+  background: linear-gradient(to bottom, rgb(239 241 244 / 0%), #eff1f4 14px);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.reminder-editor-bottom-action button {
+  width: 353px;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 42px;
+  background: #405574;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: opacity 180ms ease, transform 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reminder-editor-bottom-action button:active {
+  opacity: 0.86;
+  transform: scale(0.99);
+}
+
+.reminder-editor-bottom-action button:disabled {
+  cursor: default;
+  opacity: 0.45;
+  transform: none;
+}
+
+@keyframes reminder-sections-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reminder-sections {
+    animation: none;
+  }
+}
