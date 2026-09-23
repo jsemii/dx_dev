@@ -1,0 +1,93 @@
+# Git
+.git/
+**/.git/
+
+# Secrets and local environment
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets/
+**/application-local.properties
+
+# Python environments and caches
+.venv/
+**/.venv/
+**/.venv-*/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.tox/
+**/.nox/
+**/.ipynb_checkpoints/
+**/.coverage
+**/.coverage.*
+**/htmlcov/
+**/coverage.xml
+**/*.egg-info/
+**/.eggs/
+*.pyc
+*.pyo
+*.pyd
+
+# Node build and dependencies
+**/node_modules/
+**/dist/
+**/.vite/
+**/coverage/
+
+# Java and Gradle output
+**/build/
+**/.gradle/
+
+# Large datasets and local development files
+external/
+firmware/
+logs/
+notebooks/
+report_data/
+service/
+tests/
+back/data/
+back/models/
+back/src/
+
+# Generated report output
+daily_report/data/output/*
+
+# Local databases, runtime files, and temporary output
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.pid
+**/*.tmp
+**/*.swp
+**/*.swo
+**/*~
+
+# Private keys, local certificates, and recorded samples
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+back/**/*.webm
+back/**/*.wav
+back/**/*.mp3
+back/**/*.m4a
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.fleet/
+.direnv/
+.envrc
+.DS_Store
+**/.DS_Store
+
+# Runtime output
+*.log

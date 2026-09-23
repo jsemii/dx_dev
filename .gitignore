@@ -11,18 +11,57 @@
 # Python
 /.venv/
 **/.venv/
+**/.venv-*/
 **/venv/
 **/__pycache__/
 **/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.tox/
+**/.nox/
+**/.coverage
+**/.coverage.*
+**/htmlcov/
+**/coverage.xml
+**/*.egg-info/
+**/.eggs/
 *.py[cod]
 
 # Node
 **/node_modules/
 **/dist/
+**/.vite/
+**/coverage/
 
 # Java
 **/build/
 **/.gradle/
+*.class
+hs_err_pid*
+
+# Local databases, runtime files, and temporary output
+*.sqlite
+*.sqlite3
+*.db
+*.pid
+*.tmp
+*.swp
+*.swo
+*~
+
+# Private keys and local certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Locally recorded voice samples
+/back/**/*.webm
+/back/**/*.wav
+/back/**/*.mp3
+/back/**/*.m4a
 
 # Generated output
 daily_report/data/output/*
@@ -50,6 +89,14 @@ daily_report/data/output/*
 # macOS
 .DS_Store
 **/.DS_Store
+
+# IDE metadata
+.idea/
+**/.idea/
+*.iml
+.fleet/
+.direnv/
+.envrc
 
 /back/APPLIANCE_API.md
 /back/db/create_demo_aihub_appliance_events.sql
