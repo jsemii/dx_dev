@@ -9,6 +9,7 @@ public class WebConfig implements WebMvcConfigurer {
 
 	private static final String[] FRONTEND_ORIGINS = {
 			"http://127.0.0.1:5175", "http://localhost:5175"
+			, "https://nulbom.dx6project.site"
 	};
 
 	@Override
