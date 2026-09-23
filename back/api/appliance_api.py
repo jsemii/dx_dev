@@ -70,7 +70,7 @@ class PsqlRepository:
         environment["PGOPTIONS"] = "-c default_transaction_read_only=on -c statement_timeout=5000"
         environment["PGCONNECT_TIMEOUT"] = "5"
         # Never use a local password file: the password must come from PGPASSWORD.
-        environment["PGPASSFILE"] = "/private/tmp/wifi-care-api-no-pgpass"
+        environment["PGPASSFILE"] = "/tmp/wifi-care-api-no-pgpass"
         try:
             result = subprocess.run(
                 [self.psql, "-X", "-w", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1",
@@ -261,18 +261,31 @@ def create_handler(repository: PsqlRepository, allowed_origins: set[str]):
 
 
 def main() -> None:
+    host = os.environ.get("APPLIANCE_API_HOST", "0.0.0.0")
     port = int(os.environ.get("APPLIANCE_API_PORT", "8000"))
-    origins = set(filter(None, (origin.strip() for origin in os.environ.get(
-        "APPLIANCE_CORS_ORIGINS", "http://localhost:5173,http://localhost:5174"
-    ).split(","))))
-    server = ThreadingHTTPServer(("127.0.0.1", port), create_handler(PsqlRepository(), origins))
-    print(f"Appliance API listening on http://127.0.0.1:{port}")
+
+    origins = set(filter(None, (
+        origin.strip()
+        for origin in os.environ.get(
+            "APPLIANCE_CORS_ORIGINS",
+            "http://localhost:5173,http://localhost:5174"
+        ).split(",")
+    )))
+
+    server = ThreadingHTTPServer(
+        (host, port),
+        create_handler(PsqlRepository(), origins)
+    )
+
+    print(f"Appliance API listening on http://{host}:{port}")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+
 
 
 if __name__ == "__main__":
