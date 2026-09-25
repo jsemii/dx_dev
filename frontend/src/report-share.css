@@ -1,0 +1,395 @@
+.report-share-page {
+  width: 100%;
+  min-height: 100%;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.report-share-header {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  background: #eff1f4;
+}
+
+.report-share-header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.report-share-header button:active {
+  opacity: 0.55;
+}
+
+.report-share-header button img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.report-share-header h1 {
+  width: 317px;
+  margin: 0;
+  color: #000;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.report-share-content {
+  display: flex;
+  width: 353px;
+  margin: 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.report-share-intro {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.report-share-hero {
+  width: 187px;
+  height: 160px;
+  flex: 0 0 160px;
+}
+
+.report-share-hero img {
+  display: block;
+  width: 187px;
+  height: 160px;
+  object-fit: cover;
+}
+
+.report-share-intro-copy {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #111;
+  text-align: center;
+}
+
+.report-share-intro-copy h2,
+.report-share-intro-copy p {
+  margin: 0;
+}
+
+.report-share-intro-copy h2 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+}
+
+.report-share-intro-copy p {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -0.15px;
+}
+
+.report-guardian-card {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.report-guardian-list {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-guardian-entry {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-guardian-row {
+  display: grid;
+  width: 100%;
+  min-height: 41px;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.report-guardian-row:active {
+  opacity: 0.62;
+}
+
+.report-guardian-check {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+
+.report-guardian-check img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.report-guardian-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.report-guardian-identity strong {
+  color: #111;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.report-guardian-identity > span {
+  color: #616c7e;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.report-guardian-phone {
+  color: #616c7e;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.report-guardian-divider {
+  display: block;
+  width: calc(100% + 16px);
+  height: 1px;
+  margin-left: -8px;
+  background: #e9ebef;
+}
+
+.report-add-guardian-button {
+  display: flex;
+  width: 313px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 18px;
+  background: #eff1f4;
+  color: #4c5de9;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.report-add-guardian-button:active {
+  transform: scale(0.99);
+  opacity: 0.72;
+}
+
+.report-add-guardian-button img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.report-add-guardian-button span {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.report-share-guardians-button {
+  display: flex;
+  width: 313px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 18px;
+  background: #405574;
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.report-share-guardians-button:active:not(:disabled) {
+  transform: scale(0.99);
+  opacity: 0.88;
+}
+
+.report-share-guardians-button:disabled {
+  cursor: default;
+}
+
+.report-share-guardians-button img {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.report-share-guardians-button span {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.report-share-page--registration {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+.report-guardian-registration {
+  display: flex;
+  width: 353px;
+  min-height: calc(100dvh - 120px);
+  margin: 0 auto;
+  flex-direction: column;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.report-guardian-form-card {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px 20px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.report-guardian-form-card h2 {
+  margin: 0;
+  color: #111;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.report-guardian-field {
+  display: flex;
+  width: 313px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.report-guardian-field > span {
+  color: #111;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.report-guardian-field input {
+  width: 100%;
+  height: 36px;
+  padding: 8px 10px;
+  border: 1px solid #405574;
+  border-radius: 4px;
+  outline: none;
+  background: #fff;
+  color: #111;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.report-guardian-field input::placeholder {
+  color: #616c7e;
+  opacity: 1;
+}
+
+.report-guardian-field input:focus {
+  border-color: #4c5de9;
+  box-shadow: 0 0 0 2px rgb(76 93 233 / 14%);
+}
+
+.report-register-guardian-button {
+  width: 100%;
+  margin-top: auto;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 42px;
+  background: #405574;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.report-register-guardian-button:active:not(:disabled) {
+  transform: scale(0.99);
+  opacity: 0.88;
+}
+
+.report-register-guardian-button:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+@media (max-width: 374px) {
+  .report-share-content,
+  .report-guardian-registration {
+    width: calc(100% - 40px);
+  }
+
+  .report-guardian-card {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .report-add-guardian-button,
+  .report-share-guardians-button,
+  .report-guardian-field {
+    width: 100%;
+  }
+}
