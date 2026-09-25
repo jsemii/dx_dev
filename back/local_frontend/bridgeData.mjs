@@ -15,6 +15,13 @@ export function formatEventTime(isoTime) {
   return `${Number(parts[2])}월 ${Number(parts[3])}일 ${Number(parts[4])}시 ${Number(parts[5])}분 ${Number(parts[6])}초`;
 }
 
+export function formatApplianceValue(value, applianceId) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return '—';
+  if (applianceId === 'refrigerator') return numericValue.toFixed(0);
+  return (Math.round((numericValue + Number.EPSILON) * 10) / 10).toFixed(1);
+}
+
 export function mapApplianceData(response, originalCards) {
   if (!Array.isArray(response?.appliances)) throw new Error('API 응답 형식이 올바르지 않습니다.');
   const byId = new Map(response.appliances.map((device) => [device.id, device]));
@@ -29,12 +36,12 @@ export function mapApplianceData(response, originalCards) {
       const label = event.appliance === 'TV' ? `전원 ${event.action}`
         : card.id === 'refrigerator' ? event.action.replace(/^문 /, '') : event.action;
       const amount = event.action === '출수 종료' && event.volume_ml != null
-        ? ` ${(Number(event.volume_ml) / 1000).toFixed(3).replace(/\.?0+$/, '')}L` : '';
+        ? ` ${(Math.round((Number(event.volume_ml) / 1000) * 10) / 10).toFixed(1)}L` : '';
       return { at: formatEventTime(event.event_time), value: card.id === 'purifier' && amount ? amount.trim() : `${label}${amount}` };
     });
     return {
       ...card,
-      value: String(device.value),
+      value: formatApplianceValue(device.value, card.id),
       unit: device.unit,
       status: '사용 기록 있음',
       history: history.length ? history : [{ at: '', value: '상세 기록 없음' }],

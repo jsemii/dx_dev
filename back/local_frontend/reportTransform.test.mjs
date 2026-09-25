@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mapDailyReport, sanitizeReportText } from './reportTransform.mjs';
+
+test('local report bridge forwards the share action to the team screen', () => {
+  const source = readFileSync('./LocalDailyReport.jsx', 'utf8');
+  assert.match(source, /function LocalDailyReport\(\{ onShare \}\)/);
+  assert.match(source, /onShare=\{onShare\}/);
+});
 
 test('maps the LLM JSON to the existing daily report component', () => {
   const report = mapDailyReport({
