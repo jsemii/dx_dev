@@ -4,6 +4,7 @@ import DailyReport from './DailyReport.jsx';
 import DailyLifeCarePage from './DailyLifeCarePage.jsx';
 import MealMedicationCarePage from './MealMedicationCarePage.jsx';
 import PreferredContentPage from './PreferredContentPage.jsx';
+import { GuardianRegistrationPage, ReportSharePage } from './ReportSharePage.jsx';
 import VoiceTrainingPage from './VoiceTrainingPage.jsx';
 import {
   applianceUsageMock,
@@ -13,6 +14,7 @@ import {
   recentCareMock,
 } from './data/neulbomData.js';
 import { mealMedicationCareMock } from './data/mealMedicationData.js';
+import { reportGuardiansMock } from './data/reportShareData.js';
 import './neulbom.css';
 
 const asset = (name) => `/assets/${name}`;
@@ -73,11 +75,36 @@ function PageTabs({ activeTab, onChange }) {
   );
 }
 
-function CareTodayCard({ overview, recentCare }) {
+function CareTodayCard({ overview, recentCare, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshCareStatus = async () => {
+    if (refreshing) return;
+
+    setRefreshing(true);
+
+    try {
+      await Promise.all([
+        Promise.resolve().then(() => onRefresh?.()),
+        new Promise((resolve) => setTimeout(resolve, 560)),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
-    <section className="care-today-card" aria-label="오늘의 돌봄 상태">
+    <section className="care-today-card" aria-label="오늘의 돌봄 상태" aria-busy={refreshing}>
+      <button
+        type="button"
+        className={`care-today-refresh${refreshing ? ' care-today-refresh--active' : ''}`}
+        onClick={refreshCareStatus}
+        disabled={refreshing}
+        aria-label={refreshing ? '돌봄 상태 새로고침 중' : '돌봄 상태 새로고침'}
+      >
+        <img src={asset('care-refresh.svg')} alt="" />
+      </button>
       <div className="care-today-summary">
         <div className="care-today-copy">
           <span className="care-today-status">{overview.status}</span>
@@ -120,7 +147,7 @@ function ManagedSummary() {
     <section className="managed-summary">
       <div className="managed-message">
         <img src={asset('managed-check.svg')} alt="" />
-        <p>돌봄을 위한 제품들이 잘 관리되고 있어요.</p>
+        <p>돌봄 제품의 관리 상태를 확인할 수 있어요.</p>
       </div>
       <div className="managed-metrics">
         <div><span>스마트 진단</span><strong>0</strong></div>
@@ -325,20 +352,36 @@ function CustomCareSection({ onOpenVoice, onOpenContent }) {
 
 export default function NeulbomPage({
   onBack,
-  applianceUsage = applianceUsageMock.filter((device) => ['purifier', 'refrigerator', 'tv'].includes(device.id)),
+  onRefreshCare,
+  onRegisterGuardian,
+  onShareGuardians,
+  applianceUsage = applianceUsageMock,
   careOverview = careOverviewMock,
   recentCare = recentCareMock,
+  reportGuardians = reportGuardiansMock,
 }) {
   const [activeTab, setActiveTab] = useState('care');
   const [subPage, setSubPage] = useState('dashboard');
   const [subPageReturn, setSubPageReturn] = useState('dashboard');
-  const [dailyLifeEnabled, setDailyLifeEnabled] = useState(false);
   const [mealMedicationSettings, setMealMedicationSettings] = useState(mealMedicationCareMock);
   const [calmCareEnabled, setCalmCareEnabled] = useState(false);
+  const [guardians, setGuardians] = useState(reportGuardians);
 
   const openSubPage = (page, returnTo = 'dashboard') => {
     setSubPageReturn(returnTo);
     setSubPage(page);
+  };
+
+  const registerGuardian = async (guardian) => {
+    const savedGuardian = await onRegisterGuardian?.(guardian);
+    const nextGuardian = {
+      ...guardian,
+      ...savedGuardian,
+      id: savedGuardian?.id || `guardian-${Date.now()}`,
+    };
+
+    setGuardians((current) => [...current, nextGuardian]);
+    setSubPage('report-share');
   };
 
   if (subPage === 'voice') {
@@ -350,13 +393,7 @@ export default function NeulbomPage({
   }
 
   if (subPage === 'daily-life') {
-    return (
-      <DailyLifeCarePage
-        onBack={() => setSubPage('dashboard')}
-        initialEnabled={dailyLifeEnabled}
-        onEnabledChange={setDailyLifeEnabled}
-      />
-    );
+    return <DailyLifeCarePage onBack={() => setSubPage('dashboard')} />;
   }
 
   if (subPage === 'meal-medication') {
@@ -381,6 +418,26 @@ export default function NeulbomPage({
     );
   }
 
+  if (subPage === 'report-share') {
+    return (
+      <ReportSharePage
+        guardians={guardians}
+        onBack={() => setSubPage('dashboard')}
+        onAddGuardian={() => setSubPage('guardian-registration')}
+        onShare={onShareGuardians}
+      />
+    );
+  }
+
+  if (subPage === 'guardian-registration') {
+    return (
+      <GuardianRegistrationPage
+        onBack={() => setSubPage('report-share')}
+        onRegister={registerGuardian}
+      />
+    );
+  }
+
   return (
     <div className="neulbom-page">
       <PageHeader onBack={onBack} />
@@ -388,7 +445,7 @@ export default function NeulbomPage({
         <PageTabs activeTab={activeTab} onChange={setActiveTab} />
         {activeTab === 'care' ? (
           <div className="care-content tab-panel tab-panel--care" key="care">
-            <CareTodayCard overview={careOverview} recentCare={recentCare} />
+            <CareTodayCard overview={careOverview} recentCare={recentCare} onRefresh={onRefreshCare} />
             <ManagedSummary />
             <CareFeatureList
               onOpenDailyLife={() => setSubPage('daily-life')}
@@ -403,7 +460,7 @@ export default function NeulbomPage({
           </div>
         ) : (
           <div className="tab-panel tab-panel--report" key="report">
-            <DailyReport />
+            <DailyReport onShare={() => setSubPage('report-share')} />
           </div>
         )}
       </div>

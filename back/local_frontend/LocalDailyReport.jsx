@@ -3,7 +3,7 @@ import TeamDailyReport from '../../frontend/frontend/src/DailyReport.jsx';
 import { useReportDate } from './ReportDateContext.jsx';
 import { mapDailyReport, reportPlaceholder } from './reportTransform.mjs';
 
-export default function LocalDailyReport() {
+export default function LocalDailyReport({ onShare }) {
   const { reportDate, shiftReportDate } = useReportDate();
   const [result, setResult] = useState({ kind: 'loading' });
 
@@ -31,5 +31,5 @@ export default function LocalDailyReport() {
     ? result.report
     : reportPlaceholder(reportDate, result.kind === 'loading' ? '리포트를 불러오고 있어요.' : result.message);
 
-  return <TeamDailyReport report={report} onDateChange={shiftReportDate} />;
+  return <TeamDailyReport report={report} onDateChange={shiftReportDate} onShare={onShare} />;
 }

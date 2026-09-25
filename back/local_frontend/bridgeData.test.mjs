@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapApplianceData, pendingCards, selectSupportedCards } from './bridgeData.mjs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { formatApplianceValue, mapApplianceData, pendingCards, selectSupportedCards } from './bridgeData.mjs';
+import viteConfig from './vite.config.mjs';
 
 const originals = [
   { id: 'purifier', value: '1.2', status: '정상 작동 중', history: [] },
@@ -9,7 +11,7 @@ const originals = [
   { id: 'bedroom-light', value: '2', status: '정상 작동 중', history: [] },
 ];
 
-test('maps API totals and expanded history without provenance badges or operation claims', () => {
+test('maps API totals and history to one decimal without provenance badges or operation claims', () => {
   const response = { appliances: [
     { id: 'purifier', value: 0.85, unit: 'L', has_data: true, is_synthetic: true,
       events: [{ appliance: '정수기', action: '출수 종료', event_time: '2023-09-23T08:44:07.000',
@@ -22,15 +24,32 @@ test('maps API totals and expanded history without provenance badges or operatio
                  is_inferred: true }] },
   ] };
   const cards = mapApplianceData(response, originals);
-  assert.equal(cards[0].value, '0.85');
+  assert.equal(cards[0].value, '0.9');
   assert.equal(cards[0].status, '사용 기록 있음');
-  assert.equal(cards[0].history[0].value, '0.35L');
+  assert.equal(cards[0].history[0].value, '0.4L');
   assert.equal(cards[1].history[0].at, '9월 23일 8시 39분 59초');
   assert.equal(cards[1].history[0].value, '열림');
-  assert.equal(cards[2].value, '2.373');
+  assert.equal(cards[1].value, '2');
+  assert.equal(cards[2].value, '2.4');
   assert.equal(cards[2].status, '사용 기록 있음');
   assert.equal(cards[3].value, '—');
   assert.equal(cards[3].status, '데이터 없음');
+});
+
+test('formats refrigerator counts as integers and other totals to one decimal place', () => {
+  assert.equal(formatApplianceValue(8, 'refrigerator'), '8');
+  assert.equal(formatApplianceValue(1.25, 'purifier'), '1.3');
+  assert.equal(formatApplianceValue(0.441, 'tv'), '0.4');
+  assert.equal(formatApplianceValue('not-a-number', 'tv'), '—');
+});
+
+test('local bridge keeps ThinQ ON and starts all appliance history cards collapsed', () => {
+  const teamPage = realpathSync('../../frontend/frontend/src/NeulbomPage.jsx');
+  const source = readFileSync(teamPage, 'utf8');
+  const transformed = viteConfig.plugins[0].transform(source, teamPage);
+  assert.match(transformed, /name: 'ThinQ ON'/);
+  assert.match(transformed, /useState\(\(\) => new Set\(\)\)/);
+  assert.doesNotMatch(transformed, /new Set\(\['purifier', 'refrigerator', 'tv'\]\)/);
 });
 
 test('missing or unsupported data and loading never show fixed mock sums', () => {
@@ -43,7 +62,7 @@ test('missing or unsupported data and loading never show fixed mock sums', () =>
   assert.equal(pendingCards(originals, '조회 중')[3].value, '—');
 });
 
-test('only purifier, refrigerator and TV cards are selected', () => {
+test('only purifier, refrigerator and TV cards are selected for API-backed usage data', () => {
   assert.deepEqual(
     selectSupportedCards(originals).map((card) => card.id),
     ['purifier', 'refrigerator', 'tv'],

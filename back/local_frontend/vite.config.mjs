@@ -16,13 +16,8 @@ const localContentPage = path.join(bridgeDir, 'LocalPreferredContentPage.jsx');
 const localMealPage = path.join(bridgeDir, 'LocalMealMedicationCarePage.jsx');
 const localNeulbomData = path.join(bridgeDir, 'LocalNeulbomData.mjs');
 const teamNeulbomPage = path.join(teamFrontend, 'src/NeulbomPage.jsx');
-const hubCard = `        <article className="appliance-card appliance-card--hub">
-          <div className="hub-content">
-            <DeviceIdentity device={{ name: 'ThinQ ON', icon: 'on', status: '정상 작동 중' }} />
-            <img className="hub-info" src={asset('info.svg')} alt="제품 정보" />
-          </div>
-        </article>
-`;
+const expandedApplianceDefault = "  const [expandedDevices, setExpandedDevices] = useState(() => new Set(['purifier', 'refrigerator', 'tv']));";
+const collapsedApplianceDefault = '  const [expandedDevices, setExpandedDevices] = useState(() => new Set());';
 
 // Fail visibly after an upstream change instead of silently falling back to mock data.
 if (!readFileSync(appFile, 'utf8').includes("import NeulbomPage from './NeulbomPage.jsx'")) {
@@ -51,10 +46,10 @@ export default defineConfig({
       enforce: 'pre',
       transform(source, id) {
         if (id.split('?')[0] === teamNeulbomPage) {
-          if (!source.includes(hubCard)) {
-            throw new Error('팀원 제품 현황의 ThinQ ON 카드 구조가 변경됐습니다. 3종 가전 필터를 확인하세요.');
+          if (!source.includes(expandedApplianceDefault)) {
+            throw new Error('팀원 제품 상세 내역의 초기 펼침 구조가 변경됐습니다. 로컬 기본 닫힘 설정을 확인하세요.');
           }
-          return source.replace(hubCard, '');
+          return source.replace(expandedApplianceDefault, collapsedApplianceDefault);
         }
         if (id.split('?')[0] === path.join(teamFrontend, 'src/PreferredContentPage.jsx')) {
           return forwardContentSaveError(source);

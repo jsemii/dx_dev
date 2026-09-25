@@ -1,21 +1,29 @@
-import { useState } from 'react';
-import SmoothToggle from './components/SmoothToggle.jsx';
 import './daily-life-care.css';
 
 const asset = (name) => `/assets/${name}`;
 
-export default function DailyLifeCarePage({
-  onBack,
-  initialEnabled = false,
-  onEnabledChange,
-}) {
-  const [enabled, setEnabled] = useState(initialEnabled);
+const careFeatures = [
+  {
+    id: 'rhythm',
+    title: '하루 리듬 되찾기',
+    description: <>달라진 낮과 밤,<br />집이 다시 하루의 흐름을 맞춰드려요.</>,
+    image: 'daily-life-rhythm.png',
+  },
+  {
+    id: 'next-action',
+    title: '다음 행동 이어가기',
+    description: <>멈춘 순간에도 익숙한 일상을<br />자연스럽게 이어가도록 도와드려요.</>,
+    image: 'daily-life-next-action.png',
+  },
+  {
+    id: 'wayfinding',
+    title: '이동 길잡이',
+    description: <>방향이 헷갈리는 순간,<br />연결 가전으로 익숙한 길을 안내해드려요.</>,
+    image: 'daily-life-wayfinding.png',
+  },
+];
 
-  const updateEnabled = (nextEnabled) => {
-    setEnabled(nextEnabled);
-    onEnabledChange?.(nextEnabled);
-  };
-
+export default function DailyLifeCarePage({ onBack }) {
   return (
     <div className="daily-life-care-page">
       <header className="daily-life-care-header">
@@ -36,13 +44,21 @@ export default function DailyLifeCarePage({
           </div>
         </section>
 
-        <section className="daily-life-care-setting" aria-label="일상 생활 돌봄 사용 설정">
-          <span aria-live="polite">{enabled ? '사용 중' : '사용 안함'}</span>
-          <SmoothToggle
-            checked={enabled}
-            onChange={updateEnabled}
-            label={`일상 생활 돌봄 ${enabled ? '사용 중' : '사용 안함'}`}
-          />
+        <section className="daily-life-care-features" aria-labelledby="daily-life-care-features-title">
+          <h2 id="daily-life-care-features-title">이런 걸 할 수 있어요.</h2>
+          <div className="daily-life-care-feature-list">
+            {careFeatures.map((feature) => (
+              <article className={`daily-life-care-feature daily-life-care-feature--${feature.id}`} key={feature.id}>
+                <div className="daily-life-care-feature-copy">
+                  <h3>{feature.title}</h3>
+                  <p>{feature.description}</p>
+                </div>
+                <div className="daily-life-care-feature-image" aria-hidden="true">
+                  <img src={asset(feature.image)} alt="" />
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       </div>
     </div>
