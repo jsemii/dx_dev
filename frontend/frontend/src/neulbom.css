@@ -127,6 +127,7 @@
 }
 
 .care-today-card {
+  position: relative;
   display: flex;
   width: 100%;
   flex-direction: column;
@@ -135,6 +136,40 @@
   padding: 12px 20px;
   border-radius: 8px;
   background: #fefdfd;
+}
+
+.care-today-refresh {
+  position: absolute;
+  z-index: 1;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.care-today-refresh img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.care-today-refresh:active:not(:disabled) {
+  opacity: 0.55;
+}
+
+.care-today-refresh:disabled {
+  cursor: default;
+}
+
+.care-today-refresh--active img {
+  animation: care-refresh-spin 560ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .care-today-summary {
@@ -981,12 +1016,19 @@
   }
 }
 
+@keyframes care-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .page-tabs__indicator {
     transition: none;
   }
 
   .device-history-panel,
+  .care-today-refresh--active img,
   .tab-panel--care,
   .tab-panel--report {
     animation: none;
