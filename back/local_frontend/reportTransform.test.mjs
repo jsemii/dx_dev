@@ -24,9 +24,21 @@ test('maps the LLM JSON to the existing daily report component', () => {
   });
   assert.equal(report.date, '2026년 9월 17일');
   assert.equal(report.summary, '하루 요약입니다.');
-  assert.equal(report.timeline[0].description, 'TV를 시청했어요.');
+  assert.equal(report.timeline[0].description, '설명');
   assert.equal(report.changes[0].average, '최근 한 달 평균 시청 시간: 6시간');
   assert.equal(report.changes[0].current, '오늘 시청 시간: 2시간 22분');
+});
+
+test('uses a timeline title only when the server description is empty', () => {
+  const report = mapDailyReport({
+    report_date: '2026-09-17',
+    content: {
+      summary: '하루 요약입니다.',
+      timeline: [{ time: '09:20', title: 'TV 시청', description: '' }],
+      highlights: [],
+    },
+  });
+  assert.equal(report.timeline[0].description, 'TV 시청');
 });
 
 test('removes internal row references from visible report text', () => {

@@ -6,7 +6,7 @@ from app.config import ReportProfile
 
 
 COMMON_FIELDS = (
-    "row_id",
+    "reporting_id",
     "subject_type",
     "subject",
     "metric_code",
@@ -79,22 +79,24 @@ def preprocess_daily_records(
     if not records:
         raise ValueError("전처리할 데이터가 없습니다.")
 
-    home_id = str(records[0]["home_id"])
+    home_id = str(records[0]["resident_thinq_id"])
     household_type = str(records[0]["household_type"])
     events: list[dict[str, Any]] = []
     metrics: list[dict[str, Any]] = []
 
     for record in records:
-        if str(record["home_id"]) != home_id:
-            raise ValueError("서로 다른 home_id의 행을 한 리포트에 사용할 수 없습니다.")
+        if str(record["resident_thinq_id"]) != home_id:
+            raise ValueError("서로 다른 resident_thinq_id의 행을 한 리포트에 사용할 수 없습니다.")
 
         if record["record_type"] == "event":
             event = _select_fields(record, COMMON_FIELDS)
+            event["reporting_id"] = str(event["reporting_id"])
             event["event_time"] = _json_value(record.get("event_time"))
             _add_display_values(event)
             events.append(event)
         elif record["record_type"] == "metric":
             metric = _select_fields(record, COMMON_FIELDS)
+            metric["reporting_id"] = str(metric["reporting_id"])
             metric.update(
                 {
                     "baseline_value": _json_value(record.get("baseline_value")),

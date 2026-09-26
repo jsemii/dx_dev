@@ -15,9 +15,12 @@ def main() -> None:
         default="one_person",
     )
     parser.add_argument("--date", required=True)
+    parser.add_argument("--home-id", required=True)
     args = parser.parse_args()
 
-    rows = load_daily_records(args.profile, args.date, get_settings())
+    rows = load_daily_records(
+        args.profile, args.date, get_settings(), resident_thinq_id=args.home_id
+    )
     data = preprocess_daily_records(args.profile, args.date, rows)
     print(f"profile: {args.profile}")
     print(f"table: {table_name_for_profile(args.profile)}")

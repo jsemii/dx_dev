@@ -5,7 +5,7 @@ import pytest
 from app.csv_loader import load_daily_metrics
 
 
-FIXTURE = Path("tests/fixtures/daily_metrics_test.csv")
+FIXTURE = Path(__file__).parent / "fixtures" / "daily_metrics_test.csv"
 
 
 def test_filters_sorts_and_normalizes_rows() -> None:
@@ -19,4 +19,3 @@ def test_filters_sorts_and_normalizes_rows() -> None:
 def test_rejects_missing_selection() -> None:
     with pytest.raises(ValueError, match="해당하는 행이 없습니다"):
         load_daily_metrics(FIXTURE, "missing", "2026-09-20")
-
