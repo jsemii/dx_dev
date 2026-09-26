@@ -5,6 +5,7 @@ import com.wificare.voice.dto.RegisteredVoice;
 import com.wificare.voice.dto.VoiceCloneResponse;
 import com.wificare.voice.exception.ElevenLabsConfigurationException;
 import com.wificare.voice.exception.InvalidVoiceFileException;
+import com.wificare.voice.exception.VoiceStoreUnavailableException;
 import com.wificare.voice.service.ElevenLabsVoiceService;
 import com.wificare.voice.service.VoiceProfileRepository;
 import org.slf4j.Logger;
@@ -48,6 +49,16 @@ public class VoiceController {
 		log.info("Voice sample received: size={} bytes", file.getSize());
 
 		VoiceCloneResponse clone = voiceService.createVoiceClone(file);
-		return profiles.save(homeId, clone.voiceId(), displayName, clone.requiresVerification());
+		try {
+			return profiles.save(homeId, clone.voiceId(), displayName, clone.requiresVerification());
+		} catch (VoiceStoreUnavailableException storeError) {
+			try {
+				voiceService.deleteVoice(clone.voiceId());
+			} catch (RuntimeException compensationError) {
+				// The storage failure remains the primary error. A later provider cleanup can be retried separately.
+				log.warn("Could not compensate an ElevenLabs clone after voice profile storage failed");
+			}
+			throw storeError;
+		}
 	}
 }

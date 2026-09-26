@@ -109,7 +109,7 @@ class VoiceApplicationTests {
 
 	@Test
 	void ttsRequiresAVoiceId() throws IOException, InterruptedException {
-		HttpResponse<String> response = sendJson("/api/tts", "{\"voiceId\":\"\",\"text\":\"밥 먹어요.\"}");
+		HttpResponse<String> response = sendJson("/api/tts", "{\"voiceId\":\"\",\"text\":\"밥 먹어요.\",\"home_id\":\"home_23\"}");
 
 		assertThat(response.statusCode()).isEqualTo(400);
 		assertThat(response.body()).isEqualTo("{\"message\":\"voiceId가 필요합니다.\"}");
@@ -117,7 +117,7 @@ class VoiceApplicationTests {
 
 	@Test
 	void ttsRequiresText() throws IOException, InterruptedException {
-		HttpResponse<String> response = sendJson("/api/tts", "{\"voiceId\":\"voice-id\",\"text\":\"   \"}");
+		HttpResponse<String> response = sendJson("/api/tts", "{\"voiceId\":\"voice-id\",\"text\":\"   \",\"home_id\":\"home_23\"}");
 
 		assertThat(response.statusCode()).isEqualTo(400);
 		assertThat(response.body()).isEqualTo("{\"message\":\"재생할 문장을 입력해주세요.\"}");
@@ -125,7 +125,8 @@ class VoiceApplicationTests {
 
 	@Test
 	void ttsRejectsTextLongerThanFiveHundredCharacters() throws IOException, InterruptedException {
-		String body = "{\"voiceId\":\"voice-id\",\"text\":\"" + "가".repeat(501) + "\"}";
+		String body = "{\"voiceId\":\"voice-id\",\"text\":\"" + "가".repeat(501)
+				+ "\",\"home_id\":\"home_23\"}";
 		HttpResponse<String> response = sendJson("/api/tts", body);
 
 		assertThat(response.statusCode()).isEqualTo(400);
@@ -133,13 +134,13 @@ class VoiceApplicationTests {
 	}
 
 	@Test
-	void validTtsRequestRejectsThePlaceholderBeforeCallingUpstream() throws IOException, InterruptedException {
+	void ttsRequiresAResidentForOwnershipVerification() throws IOException, InterruptedException {
 		HttpResponse<String> response = sendJson(
 				"/api/tts",
 				"{\"voiceId\":\"voice-id\",\"text\":\"밥 먹어요.\"}");
 
-		assertThat(response.statusCode()).isEqualTo(503);
-		assertThat(response.body()).isEqualTo("{\"message\":\"ElevenLabs API 설정이 필요합니다.\"}");
+		assertThat(response.statusCode()).isEqualTo(400);
+		assertThat(response.body()).isEqualTo("{\"message\":\"home_id가 필요합니다.\"}");
 		assertThat(response.body()).doesNotContain(ElevenLabsProperties.PLACEHOLDER);
 	}
 

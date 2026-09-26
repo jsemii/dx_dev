@@ -1,7 +1,10 @@
 import { DEFAULT_HOME_ID } from './bridgeData.mjs';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INTERNAL_ALARM_ID_PATTERN = /^alarm-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 function normalizeAlarm(row) {
-  if (!Number.isSafeInteger(row?.alarm_id) || row.alarm_id < 1
+  if (typeof row?.alarm_id !== 'string' || !UUID_PATTERN.test(row.alarm_id)
       || row.home_id !== DEFAULT_HOME_ID || !['meal', 'medication'].includes(row.type)
       || typeof row.name !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(row.time)
       || typeof row.enabled !== 'boolean') {
@@ -72,8 +75,8 @@ export async function addAlarm(type, { name, time }) {
 }
 
 export async function setAlarmEnabled(id, enabled) {
-  const alarmId = Number(/^alarm-(\d+)$/.exec(id)?.[1]);
-  if (!Number.isSafeInteger(alarmId) || alarmId < 1) throw new Error('알림 ID가 올바르지 않습니다.');
+  const alarmId = typeof id === 'string' ? INTERNAL_ALARM_ID_PATTERN.exec(id)?.[1] : undefined;
+  if (!alarmId) throw new Error('알림 ID가 올바르지 않습니다.');
   const row = await request(`/api/alarms/${alarmId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

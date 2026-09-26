@@ -53,7 +53,7 @@ public class AlarmController {
     }
 
     @PatchMapping("/{alarmId}")
-    public AlarmItem setEnabled(@PathVariable long alarmId, @RequestBody EnabledRequest request) {
+    public AlarmItem setEnabled(@PathVariable String alarmId, @RequestBody EnabledRequest request) {
         if (request == null) throw new IllegalArgumentException("알림 정보가 필요합니다.");
         return repository.setEnabled(AlarmValidation.alarmId(alarmId),
                 AlarmValidation.homeId(request.homeId()), AlarmValidation.enabled(request.enabled()));

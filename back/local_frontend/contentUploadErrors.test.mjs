@@ -16,7 +16,7 @@ test('upstream page forwards a save error without editing the team file', () => 
 });
 
 test('only known safe API messages reach the screen', async () => {
-  const failure = await contentSaveError(new Response(JSON.stringify({ message: 'JPEG, PNG, WebP, HEIC 이미지만 등록할 수 있습니다.' }), { status: 400 }));
+  const failure = await contentSaveError(new Response(JSON.stringify({ message: 'JPEG, PNG, WebP, HEIC, HEIF 이미지만 등록할 수 있습니다.' }), { status: 400 }));
   assert.match(failure.message, /HTTP 400.*JPEG/);
   const unavailable = await contentSaveError(new Response(JSON.stringify({ message: 'internal database password' }), { status: 503 }));
   assert.doesNotMatch(unavailable.message, /password/);

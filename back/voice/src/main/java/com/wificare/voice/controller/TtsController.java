@@ -2,6 +2,7 @@ package com.wificare.voice.controller;
 
 import com.wificare.voice.dto.TtsRequest;
 import com.wificare.voice.service.ElevenLabsTextToSpeechService;
+import com.wificare.voice.service.VoiceProfileRepository;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,9 +22,11 @@ public class TtsController {
 	private static final MediaType AUDIO_MPEG = MediaType.valueOf("audio/mpeg");
 
 	private final ElevenLabsTextToSpeechService textToSpeechService;
+	private final VoiceProfileRepository profiles;
 
-	public TtsController(ElevenLabsTextToSpeechService textToSpeechService) {
+	public TtsController(ElevenLabsTextToSpeechService textToSpeechService, VoiceProfileRepository profiles) {
 		this.textToSpeechService = textToSpeechService;
+		this.profiles = profiles;
 	}
 
 	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = "audio/mpeg")
@@ -33,7 +36,10 @@ public class TtsController {
 				request.text().length(),
 				StringUtils.hasText(request.voiceId()));
 
-		byte[] audio = textToSpeechService.generateSpeech(request.voiceId().trim(), request.text().trim());
+		String voiceId = request.voiceId().trim();
+		RegisteredVoiceController.validateHomeId(request.homeId());
+		profiles.requireOwned(request.homeId(), voiceId);
+		byte[] audio = textToSpeechService.generateSpeech(voiceId, request.text().trim());
 		return ResponseEntity.ok()
 				.contentType(AUDIO_MPEG)
 				.contentLength(audio.length)

@@ -5,6 +5,10 @@ import { forwardContentSaveError } from './contentUploadErrors.mjs';
 
 test('local content bridge sends rename and delete to the backend', () => {
   const source = readFileSync('./LocalPreferredContentPage.jsx', 'utf8');
+  assert.match(source, /\[0-9a-f\]\{8\}.*\[0-9a-f\]\{12\}/);
+  assert.doesNotMatch(source, /\(\\d\+\)/);
+  assert.match(source, /body\.contents\.forEach\(contentIdentity\)/);
+  assert.match(source, /contentIdentity\(saved\)/);
   assert.match(source, /method: 'PATCH'/);
   assert.match(source, /method: 'DELETE'/);
   assert.match(source, /home_id: DEFAULT_HOME_ID/);

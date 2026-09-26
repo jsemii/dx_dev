@@ -7,6 +7,8 @@ import java.sql.SQLException;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +19,8 @@ import com.wificare.voice.db.VoiceDatabase;
 @Repository
 public class AlarmRepository {
     private static final Logger log = LoggerFactory.getLogger(AlarmRepository.class);
-    private static final String COLUMNS = "alarm_id, home_id, type, name, time, enabled";
+    private static final String COLUMNS = "alarm_id, resident_thinq_id, alarm_type::text AS alarm_type, "
+            + "alarm_name, alarm_time, is_enabled";
     private final VoiceDatabase database;
 
     public AlarmRepository(VoiceDatabase database) {
@@ -25,7 +28,8 @@ public class AlarmRepository {
     }
 
     public List<AlarmItem> list(String homeId) {
-        String sql = "SELECT " + COLUMNS + " FROM public.alarm WHERE home_id = ? ORDER BY time, type, alarm_id";
+        String sql = "SELECT " + COLUMNS + " FROM public.alarm WHERE resident_thinq_id = ? "
+                + "ORDER BY alarm_time, alarm_type, alarm_id";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
             try (ResultSet result = statement.executeQuery()) {
@@ -39,10 +43,14 @@ public class AlarmRepository {
     }
 
     public AlarmItem add(String homeId, String type, String name, LocalTime time) {
-        String sql = "INSERT INTO public.alarm (home_id, type, name, time) VALUES (?, ?, ?, ?) RETURNING " + COLUMNS;
+        String sql = "INSERT INTO public.alarm "
+                + "(resident_thinq_id, alarm_type, alarm_name, alarm_time, source_type) "
+                + "VALUES (?, CAST(? AS public.alarm_type_enum), ?, ?, "
+                + "CAST('MANUAL' AS public.alarm_source_type_enum)) "
+                + "RETURNING " + COLUMNS;
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
-            statement.setString(2, type);
+            statement.setString(2, type.toUpperCase(Locale.ROOT));
             statement.setString(3, name);
             statement.setObject(4, time);
             try (ResultSet result = statement.executeQuery()) {
@@ -54,11 +62,12 @@ public class AlarmRepository {
         }
     }
 
-    public AlarmItem setEnabled(long alarmId, String homeId, boolean enabled) {
-        String sql = "UPDATE public.alarm SET enabled = ? WHERE alarm_id = ? AND home_id = ? RETURNING " + COLUMNS;
+    public AlarmItem setEnabled(UUID alarmId, String homeId, boolean enabled) {
+        String sql = "UPDATE public.alarm SET is_enabled = ? "
+                + "WHERE alarm_id = ? AND resident_thinq_id = ? RETURNING " + COLUMNS;
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setBoolean(1, enabled);
-            statement.setLong(2, alarmId);
+            statement.setObject(2, alarmId);
             statement.setString(3, homeId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) throw new AlarmNotFoundException();
@@ -70,12 +79,12 @@ public class AlarmRepository {
     }
 
     public AlarmSetting settings(String homeId) {
-        String sql = "SELECT home_id, enabled, meal_enabled, medication_enabled "
-                + "FROM public.alarm_setting WHERE home_id = ?";
+        String sql = "SELECT is_enabled, meal_enabled, medication_enabled "
+                + "FROM public.alarm_setting WHERE resident_thinq_id = ?";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
             try (ResultSet result = statement.executeQuery()) {
-                return result.next() ? setting(result) : new AlarmSetting(homeId, true, true, true);
+                return result.next() ? setting(homeId, result) : new AlarmSetting(homeId, false, true, true);
             }
         } catch (SQLException | IllegalStateException error) {
             throw unavailable(error);
@@ -85,14 +94,15 @@ public class AlarmRepository {
     public AlarmSetting updateSettings(String homeId, Boolean enabled, Boolean mealEnabled,
             Boolean medicationEnabled) {
         String sql = "INSERT INTO public.alarm_setting "
-                + "(home_id, enabled, meal_enabled, medication_enabled) "
-                + "VALUES (?, COALESCE(?::boolean, true), COALESCE(?::boolean, true), COALESCE(?::boolean, true)) "
-                + "ON CONFLICT (home_id) DO UPDATE SET "
-                + "enabled = COALESCE(?::boolean, alarm_setting.enabled), "
-                + "meal_enabled = COALESCE(?::boolean, alarm_setting.meal_enabled), "
-                + "medication_enabled = COALESCE(?::boolean, alarm_setting.medication_enabled), "
+                + "(resident_thinq_id, is_enabled, meal_enabled, medication_enabled) "
+                + "VALUES (?, COALESCE(CAST(? AS boolean), false), "
+                + "COALESCE(CAST(? AS boolean), true), COALESCE(CAST(? AS boolean), true)) "
+                + "ON CONFLICT (resident_thinq_id) DO UPDATE SET "
+                + "is_enabled = COALESCE(CAST(? AS boolean), alarm_setting.is_enabled), "
+                + "meal_enabled = COALESCE(CAST(? AS boolean), alarm_setting.meal_enabled), "
+                + "medication_enabled = COALESCE(CAST(? AS boolean), alarm_setting.medication_enabled), "
                 + "updated_at = now() "
-                + "RETURNING home_id, enabled, meal_enabled, medication_enabled";
+                + "RETURNING is_enabled, meal_enabled, medication_enabled";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
             setBoolean(statement, 2, enabled);
@@ -103,7 +113,7 @@ public class AlarmRepository {
             setBoolean(statement, 7, medicationEnabled);
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
-                return setting(result);
+                return setting(homeId, result);
             }
         } catch (SQLException | IllegalStateException error) {
             throw unavailable(error);
@@ -111,14 +121,14 @@ public class AlarmRepository {
     }
 
     private static AlarmItem item(ResultSet result) throws SQLException {
-        return new AlarmItem(result.getLong("alarm_id"), result.getString("home_id"),
-                result.getString("type"), result.getString("name"),
-                AlarmValidation.displayTime(result.getObject("time", LocalTime.class)),
-                result.getBoolean("enabled"));
+        return new AlarmItem(result.getObject("alarm_id", UUID.class), result.getString("resident_thinq_id"),
+                result.getString("alarm_type").toLowerCase(Locale.ROOT), result.getString("alarm_name"),
+                AlarmValidation.displayTime(result.getObject("alarm_time", LocalTime.class)),
+                result.getBoolean("is_enabled"));
     }
 
-    private static AlarmSetting setting(ResultSet result) throws SQLException {
-        return new AlarmSetting(result.getString("home_id"), result.getBoolean("enabled"),
+    private static AlarmSetting setting(String homeId, ResultSet result) throws SQLException {
+        return new AlarmSetting(homeId, result.getBoolean("is_enabled"),
                 result.getBoolean("meal_enabled"), result.getBoolean("medication_enabled"));
     }
 
