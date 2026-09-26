@@ -18,6 +18,20 @@ const localNeulbomData = path.join(bridgeDir, 'LocalNeulbomData.mjs');
 const teamNeulbomPage = path.join(teamFrontend, 'src/NeulbomPage.jsx');
 const expandedApplianceDefault = "  const [expandedDevices, setExpandedDevices] = useState(() => new Set(['purifier', 'refrigerator', 'tv']));";
 const collapsedApplianceDefault = '  const [expandedDevices, setExpandedDevices] = useState(() => new Set());';
+const careCardSignature = 'function CareTodayCard({ overview, recentCare, onRefresh }) {';
+const connectedCareCardSignature = 'function CareTodayCard({ overview, recentCare, onRefresh, ariaLabel }) {';
+const careAriaLabel = 'aria-label="오늘의 돌봄 상태"';
+const connectedCareAriaLabel = 'aria-label={ariaLabel}';
+const neulbomPropsStart = `export default function NeulbomPage({
+  onBack,`;
+const connectedNeulbomPropsStart = `export default function NeulbomPage({
+  onBack,
+  applianceUsageResetKey,
+  careStatusAriaLabel,`;
+const applianceSectionCall = '<ApplianceSection devices={applianceUsage} />';
+const connectedApplianceSectionCall = '<ApplianceSection key={applianceUsageResetKey} devices={applianceUsage} />';
+const careCardCall = '<CareTodayCard overview={careOverview} recentCare={recentCare} onRefresh={onRefreshCare} />';
+const connectedCareCardCall = '<CareTodayCard overview={careOverview} recentCare={recentCare} onRefresh={onRefreshCare} ariaLabel={careStatusAriaLabel} />';
 
 // Fail visibly after an upstream change instead of silently falling back to mock data.
 if (!readFileSync(appFile, 'utf8').includes("import NeulbomPage from './NeulbomPage.jsx'")) {
@@ -46,10 +60,18 @@ export default defineConfig({
       enforce: 'pre',
       transform(source, id) {
         if (id.split('?')[0] === teamNeulbomPage) {
-          if (!source.includes(expandedApplianceDefault)) {
-            throw new Error('팀원 제품 상세 내역의 초기 펼침 구조가 변경됐습니다. 로컬 기본 닫힘 설정을 확인하세요.');
+          const requiredAnchors = [expandedApplianceDefault, careCardSignature, careAriaLabel,
+            neulbomPropsStart, applianceSectionCall, careCardCall];
+          if (requiredAnchors.some((anchor) => !source.includes(anchor))) {
+            throw new Error('팀원 늘봄 화면 구조가 변경됐습니다. 로컬 돌봄 브리지 연결을 확인하세요.');
           }
-          return source.replace(expandedApplianceDefault, collapsedApplianceDefault);
+          return source
+            .replace(expandedApplianceDefault, collapsedApplianceDefault)
+            .replace(careCardSignature, connectedCareCardSignature)
+            .replace(careAriaLabel, connectedCareAriaLabel)
+            .replace(neulbomPropsStart, connectedNeulbomPropsStart)
+            .replace(applianceSectionCall, connectedApplianceSectionCall)
+            .replace(careCardCall, connectedCareCardCall);
         }
         if (id.split('?')[0] === path.join(teamFrontend, 'src/PreferredContentPage.jsx')) {
           return forwardContentSaveError(source);

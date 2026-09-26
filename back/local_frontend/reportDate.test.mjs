@@ -1,14 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatKoreanDate, shiftIsoDate } from './reportDate.mjs';
+import { formatKoreanDate, getSeoulTodayIso, shiftIsoDate } from './reportDate.mjs';
 
 test('moves the shared report date and formats it for the screen', () => {
-  assert.equal(shiftIsoDate('2026-09-17', -1), '2026-09-16');
-  assert.equal(shiftIsoDate('2026-09-17', 1), '2026-09-18');
+  assert.equal(shiftIsoDate('2026-09-17', -1, '2026-09-26'), '2026-09-16');
+  assert.equal(shiftIsoDate('2026-09-17', 1, '2026-09-26'), '2026-09-18');
   assert.equal(formatKoreanDate('2026-09-17'), '2026년 9월 17일');
 });
 
 test('does not move outside the generated data period', () => {
-  assert.equal(shiftIsoDate('2025-09-23', -1), '2025-09-23');
-  assert.equal(shiftIsoDate('2026-09-22', 1), '2026-09-22');
+  assert.equal(shiftIsoDate('2025-09-23', -1, '2026-09-26'), '2025-09-23');
+  assert.equal(shiftIsoDate('2026-09-26', 1, '2026-09-26'), '2026-09-26');
+  assert.equal(shiftIsoDate('2026-09-22', 1, '2026-09-26'), '2026-09-23');
+});
+
+test('uses the Asia/Seoul calendar date', () => {
+  assert.equal(getSeoulTodayIso(new Date('2026-09-25T15:30:00Z')), '2026-09-26');
 });

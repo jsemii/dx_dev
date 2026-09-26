@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from uuid import UUID
 
 from app.report_preprocessor import preprocess_daily_records
 
@@ -6,10 +7,10 @@ from app.report_preprocessor import preprocess_daily_records
 def test_splits_events_and_metrics() -> None:
     records = [
         {
-            "row_id": 1,
-            "home_id": "home_23",
+            "reporting_id": UUID("00000000-0000-0000-0000-000000000001"),
+            "resident_thinq_id": "home_23",
             "household_type": "one_person",
-            "date": date(2026, 9, 17),
+            "data_date": date(2026, 9, 17),
             "event_time": datetime(2026, 9, 17, 9, 28),
             "record_type": "event",
             "subject_type": "behavior",
@@ -24,10 +25,10 @@ def test_splits_events_and_metrics() -> None:
             "evidence": "test-event",
         },
         {
-            "row_id": 2,
-            "home_id": "home_23",
+            "reporting_id": UUID("00000000-0000-0000-0000-000000000002"),
+            "resident_thinq_id": "home_23",
             "household_type": "one_person",
-            "date": date(2026, 9, 17),
+            "data_date": date(2026, 9, 17),
             "event_time": None,
             "record_type": "metric",
             "subject_type": "behavior",
@@ -55,10 +56,10 @@ def test_splits_events_and_metrics() -> None:
 def test_adds_minute_display_values_for_second_metrics() -> None:
     records = [
         {
-            "row_id": 1,
-            "home_id": "home_23",
+            "reporting_id": UUID("00000000-0000-0000-0000-000000000001"),
+            "resident_thinq_id": "home_23",
             "household_type": "one_person",
-            "date": date(2026, 9, 17),
+            "data_date": date(2026, 9, 17),
             "event_time": None,
             "record_type": "metric",
             "subject_type": "appliance",
