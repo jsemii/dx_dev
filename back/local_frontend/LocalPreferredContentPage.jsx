@@ -3,6 +3,14 @@ import TeamPreferredContentPage from '../../frontend/frontend/src/PreferredConte
 import { DEFAULT_HOME_ID } from './bridgeData.mjs';
 import { contentApiError, contentSaveError } from './contentUploadErrors.mjs';
 
+const CONTENT_ID_PATTERN = /^(image|youtube)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+function contentIdentity(content) {
+  const match = CONTENT_ID_PATTERN.exec(content?.id || '');
+  if (!match || match[1] !== content.type) throw new Error('콘텐츠 ID가 올바르지 않습니다.');
+  return { type: match[1], itemId: match[2] };
+}
+
 export default function LocalPreferredContentPage({ onBack }) {
   const [result, setResult] = useState({ kind: 'loading' });
   const [retry, setRetry] = useState(0);
@@ -17,6 +25,7 @@ export default function LocalPreferredContentPage({ onBack }) {
       })
       .then((body) => {
         if (!Array.isArray(body?.contents)) throw new Error('목록 응답 형식이 올바르지 않습니다.');
+        body.contents.forEach(contentIdentity);
         setResult({ kind: 'ready', contents: body.contents });
       })
       .catch((error) => {
@@ -43,13 +52,9 @@ export default function LocalPreferredContentPage({ onBack }) {
       throw new Error('지원하지 않는 콘텐츠 종류입니다.');
     }
     if (!response.ok) throw await contentSaveError(response);
-    return response.json();
-  }
-
-  function contentIdentity(content) {
-    const match = /^(image|youtube)-(\d+)$/.exec(content?.id || '');
-    if (!match || match[1] !== content.type) throw new Error('콘텐츠 ID가 올바르지 않습니다.');
-    return { type: match[1], itemId: match[2] };
+    const saved = await response.json();
+    contentIdentity(saved);
+    return saved;
   }
 
   async function updateContent(content) {
@@ -60,7 +65,12 @@ export default function LocalPreferredContentPage({ onBack }) {
       body: JSON.stringify({ home_id: DEFAULT_HOME_ID, name: content.name }),
     });
     if (!response.ok) throw await contentApiError(response, '수정');
-    return response.json();
+    const saved = await response.json();
+    const savedIdentity = contentIdentity(saved);
+    if (savedIdentity.type !== type || savedIdentity.itemId !== itemId) {
+      throw new Error('콘텐츠 저장 결과가 올바르지 않습니다.');
+    }
+    return saved;
   }
 
   async function deleteContent(content) {

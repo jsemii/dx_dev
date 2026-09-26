@@ -74,9 +74,9 @@ public class PreferredContentController {
     }
 
     @GetMapping(path = "/images/{imageId}")
-    public ResponseEntity<byte[]> image(@PathVariable long imageId, @RequestParam("home_id") String homeId) {
-        if (imageId < 1) throw new ContentNotFoundException();
-        PreferredContentRepository.ImageBlob blob = repository.image(imageId, ContentValidation.homeId(homeId));
+    public ResponseEntity<byte[]> image(@PathVariable String imageId, @RequestParam("home_id") String homeId) {
+        PreferredContentRepository.ImageBlob blob = repository.image(ContentValidation.itemId(imageId),
+                ContentValidation.homeId(homeId));
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header("X-Content-Type-Options", "nosniff")
@@ -85,7 +85,7 @@ public class PreferredContentController {
     }
 
     @PatchMapping(path = "/items/{type}/{itemId}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ContentItem rename(@PathVariable String type, @PathVariable long itemId,
+    public ContentItem rename(@PathVariable String type, @PathVariable String itemId,
             @RequestBody UpdateRequest request) {
         if (request == null) throw new IllegalArgumentException("콘텐츠 정보가 필요합니다.");
         return repository.rename(ContentValidation.contentType(type), ContentValidation.itemId(itemId),
@@ -93,7 +93,7 @@ public class PreferredContentController {
     }
 
     @DeleteMapping("/items/{type}/{itemId}")
-    public ResponseEntity<Void> delete(@PathVariable String type, @PathVariable long itemId,
+    public ResponseEntity<Void> delete(@PathVariable String type, @PathVariable String itemId,
             @RequestParam("home_id") String homeId) {
         repository.delete(ContentValidation.contentType(type), ContentValidation.itemId(itemId),
                 ContentValidation.homeId(homeId));

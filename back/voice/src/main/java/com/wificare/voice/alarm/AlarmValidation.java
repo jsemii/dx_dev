@@ -2,6 +2,7 @@ package com.wificare.voice.alarm;
 
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.UUID;
 
 import com.wificare.voice.content.ContentValidation;
 
@@ -37,9 +38,12 @@ public final class AlarmValidation {
         return LocalTime.parse(value, TIME_FORMAT);
     }
 
-    public static long alarmId(long value) {
-        if (value < 1) throw new IllegalArgumentException("알림 ID가 올바르지 않습니다.");
-        return value;
+    public static UUID alarmId(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException | NullPointerException error) {
+            throw new IllegalArgumentException("알림 ID가 올바르지 않습니다.");
+        }
     }
 
     public static boolean enabled(Boolean value) {

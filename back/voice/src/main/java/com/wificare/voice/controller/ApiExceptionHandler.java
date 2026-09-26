@@ -9,6 +9,7 @@ import com.wificare.voice.alarm.AlarmNotFoundException;
 import com.wificare.voice.alarm.AlarmStoreUnavailableException;
 import com.wificare.voice.exception.ElevenLabsApiException;
 import com.wificare.voice.exception.ElevenLabsConfigurationException;
+import com.wificare.voice.exception.DuplicateSharedPhraseException;
 import com.wificare.voice.exception.InvalidVoiceFileException;
 import com.wificare.voice.exception.VoiceNotFoundException;
 import com.wificare.voice.exception.VoiceStoreUnavailableException;
@@ -60,6 +61,11 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(IllegalArgumentException.class)
 	public ResponseEntity<ApiErrorResponse> handleInvalidInput(IllegalArgumentException exception) {
 		return response(HttpStatus.BAD_REQUEST, exception.getMessage());
+	}
+
+	@ExceptionHandler(DuplicateSharedPhraseException.class)
+	public ResponseEntity<ApiErrorResponse> handleDuplicateSharedPhrase(DuplicateSharedPhraseException exception) {
+		return response(HttpStatus.CONFLICT, exception.getMessage());
 	}
 
 	@ExceptionHandler(VoiceStoreUnavailableException.class)

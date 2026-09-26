@@ -3,10 +3,11 @@ package com.wificare.voice.content;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.UUID;
 import java.nio.charset.StandardCharsets;
 
 public final class ContentValidation {
-    public static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    public static final int MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
     private ContentValidation() {
     }
@@ -33,14 +34,17 @@ public final class ContentValidation {
         return value;
     }
 
-    public static long itemId(long value) {
-        if (value < 1) throw new IllegalArgumentException("콘텐츠 ID가 올바르지 않습니다.");
-        return value;
+    public static UUID itemId(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException | NullPointerException error) {
+            throw new IllegalArgumentException("콘텐츠 ID가 올바르지 않습니다.");
+        }
     }
 
     public static String imageMime(byte[] data) {
         if (data == null || data.length == 0 || data.length > MAX_IMAGE_BYTES) {
-            throw new IllegalArgumentException("이미지는 5MB 이하의 JPEG, PNG, WebP, HEIC 파일이어야 합니다.");
+            throw new IllegalArgumentException("이미지는 25MiB 이하의 JPEG, PNG, WebP, HEIC, HEIF 파일이어야 합니다.");
         }
         if (data.length >= 3 && (data[0] & 0xff) == 0xff && (data[1] & 0xff) == 0xd8
                 && (data[2] & 0xff) == 0xff) {
@@ -58,7 +62,10 @@ public final class ContentValidation {
         if (brand.equals("heic") || brand.equals("heix") || brand.equals("hevc") || brand.equals("hevx")) {
             return "image/heic";
         }
-        throw new IllegalArgumentException("JPEG, PNG, WebP, HEIC 이미지만 등록할 수 있습니다.");
+        if (brand.equals("heif") || brand.equals("heis") || brand.equals("mif1") || brand.equals("msf1")) {
+            return "image/heif";
+        }
+        throw new IllegalArgumentException("JPEG, PNG, WebP, HEIC, HEIF 이미지만 등록할 수 있습니다.");
     }
 
     // 진단 로그에는 파일 바이트 대신 알려진 ftyp 브랜드 판별 결과만 남긴다.
@@ -68,14 +75,16 @@ public final class ContentValidation {
         long boxSize = ((long) (data[0] & 0xff) << 24) | ((long) (data[1] & 0xff) << 16)
                 | ((long) (data[2] & 0xff) << 8) | (data[3] & 0xff);
         if (boxSize < 16 || boxSize > data.length) return "invalid-ftyp-size";
+        String heifBrand = null;
         for (int offset = 8; offset + 4 <= boxSize; offset += 4) {
             if (offset == 12) continue;
             String brand = new String(data, offset, 4, StandardCharsets.US_ASCII);
-            if (brand.equals("heic") || brand.equals("heix") || brand.equals("hevc") || brand.equals("hevx")) {
-                return brand;
-            }
+            if (brand.equals("heic") || brand.equals("heix")
+                    || brand.equals("hevc") || brand.equals("hevx")) return brand;
+            if (heifBrand == null && (brand.equals("heif") || brand.equals("heis")
+                    || brand.equals("mif1") || brand.equals("msf1"))) heifBrand = brand;
         }
-        return "unrecognized-ftyp-brand";
+        return heifBrand == null ? "unrecognized-ftyp-brand" : heifBrand;
     }
 
     public static String youtubeVideoId(String rawUrl) {

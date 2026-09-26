@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   recordingScript,
-  voiceSamplePhrases,
   voiceSteps,
 } from '../../frontend/frontend/src/data/voiceTrainingData.js';
 import { DEFAULT_HOME_ID } from './bridgeData.mjs';
+import {
+  generateOwnedTts,
+  loadSharedPhrases,
+  saveVoiceEdits,
+  stageSharedPhrase,
+} from './voicePhraseApi.mjs';
 import '../../frontend/frontend/src/voice-training.css';
 import './local-voice.css';
 
 const asset = (name) => `/assets/${name}`;
+const DEFAULT_VOICE_PHRASES = Object.freeze(['밥 먹어요', '약 먹어요']);
 
 function VoiceHeader({ onBack, title = '맞춤 목소리', onDelete }) {
   return (
@@ -157,12 +163,47 @@ function ReviewStep({ seconds, isPlaying, onReplay, onRetry }) {
   );
 }
 
+function VoicePhraseList({ sharedPhrases, pendingPhrases, message, playingPhrase, playDisabled, addDisabled, onPlay, onAdd }) {
+  const phrases = [
+    ...DEFAULT_VOICE_PHRASES.map((text) => ({ key: `default-${text}`, text })),
+    ...sharedPhrases.map((phrase) => ({ key: `shared-${phrase.phrase_id}`, text: phrase.text })),
+    ...pendingPhrases.map((text) => ({ key: `pending-${text}`, text })),
+  ];
+  return (
+    <div className="voice-sample-list">
+      {message && <p role="status" className="local-voice-message">{message}</p>}
+      {phrases.map((phrase) => {
+        const isPlaying = playingPhrase === phrase.text;
+        return (
+          <button type="button" key={phrase.key} disabled={playDisabled}
+            onClick={() => onPlay(phrase.text)}
+            aria-label={`${phrase.text} ${isPlaying ? '재생 중지' : '재생'}`} aria-pressed={isPlaying}>
+            {isPlaying
+              ? <span className="voice-stop-small" aria-hidden="true" />
+              : <img src={asset('voice-play-small.svg')} alt="" />}
+            <span>{phrase.text}</span>
+          </button>
+        );
+      })}
+      <button type="button" disabled={addDisabled} onClick={onAdd} aria-label="직접 문구 입력하기">
+        <img src={asset('voice-play-small.svg')} alt="" />
+        <span>직접 입력하기</span>
+      </button>
+    </div>
+  );
+}
+
 function CompleteStep({
   voiceName,
   onVoiceNameChange,
   onPreviewSample,
+  sharedPhrases,
+  pendingPhrases,
+  phraseMessage,
+  onAddPhrase,
   requiresVerification,
   playingPhrase,
+  busy,
   previewBusy,
 }) {
   return (
@@ -182,21 +223,10 @@ function CompleteStep({
           autoComplete="off"
         />
       </label>
-      <div className="voice-sample-list">
-        {voiceSamplePhrases.map((phrase) => {
-          const isPlaying = playingPhrase === phrase;
-          return (
-            <button type="button" key={phrase} disabled={requiresVerification || previewBusy}
-              onClick={() => onPreviewSample?.(phrase)}
-              aria-label={`${phrase} ${isPlaying ? '재생 중지' : '재생'}`} aria-pressed={isPlaying}>
-              {isPlaying
-                ? <span className="voice-stop-small" aria-hidden="true" />
-                : <img src={asset('voice-play-small.svg')} alt="" />}
-              <span>{phrase}</span>
-            </button>
-          );
-        })}
-      </div>
+      <VoicePhraseList sharedPhrases={sharedPhrases} pendingPhrases={pendingPhrases}
+        message={phraseMessage} playingPhrase={playingPhrase}
+        playDisabled={requiresVerification || previewBusy || busy} addDisabled={previewBusy || busy}
+        onPlay={onPreviewSample} onAdd={onAddPhrase} />
     </section>
   );
 }
@@ -207,8 +237,9 @@ async function apiResponse(response) {
   throw new Error(payload.message || `음성 API 요청 실패 (HTTP ${response.status})`);
 }
 
-function VoiceDetail({ voice, onBack, onUpdated, onDeleted }) {
+function VoiceDetail({ voice, sharedPhrases, phraseMessage, onBack, onUpdated, onDeleted }) {
   const [name, setName] = useState(voice.name);
+  const [pendingPhrases, setPendingPhrases] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [playingPhrase, setPlayingPhrase] = useState('');
@@ -234,21 +265,15 @@ function VoiceDetail({ voice, onBack, onUpdated, onDeleted }) {
       stopAudio();
       return;
     }
-    let text = phrase.replace(/[“”]/g, '');
-    if (phrase === '직접 입력하기') {
-      text = window.prompt('재생할 문장을 입력해주세요 (500자 이내)', '')?.trim() || '';
-    }
+    const text = phrase.trim();
     if (!text) return;
     setBusy(true);
     setError('');
     stopAudio();
     try {
-      const response = await apiResponse(await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voiceId: voice.voiceId, text }),
-      }));
-      audioUrlRef.current = URL.createObjectURL(await response.blob());
+      audioUrlRef.current = URL.createObjectURL(
+        await generateOwnedTts(fetch, DEFAULT_HOME_ID, voice.voiceId, text),
+      );
       const audio = new Audio(audioUrlRef.current);
       audioRef.current = audio;
       audio.onended = stopAudio;
@@ -262,21 +287,30 @@ function VoiceDetail({ voice, onBack, onUpdated, onDeleted }) {
     }
   };
 
+  const addPhrase = () => {
+    if (busy) return;
+    setError('');
+    const input = window.prompt('저장할 문구를 입력해주세요 (500자 이내)', '');
+    try {
+      setPendingPhrases(stageSharedPhrase(
+        [...DEFAULT_VOICE_PHRASES, ...sharedPhrases.map((phrase) => phrase.text)],
+        pendingPhrases,
+        input,
+      ));
+    } catch (cause) {
+      setError(cause.message || '공유 문구를 추가하지 못했습니다.');
+    }
+  };
+
   const save = async () => {
     const trimmedName = name.trim();
     if (!trimmedName || busy) return;
     setBusy(true);
     setError('');
     try {
-      const response = await apiResponse(await fetch(
-        `/api/voice/registered/${encodeURIComponent(voice.voiceId)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ homeId: DEFAULT_HOME_ID, name: trimmedName }),
-        },
-      ));
-      const updated = await response.json();
+      const updated = await saveVoiceEdits(
+        fetch, DEFAULT_HOME_ID, voice.voiceId, trimmedName, pendingPhrases,
+      );
       onUpdated({ ...updated, id: updated.voiceId });
     } catch (cause) {
       setError(cause.message || '목소리 정보를 저장하지 못했습니다.');
@@ -307,21 +341,10 @@ function VoiceDetail({ voice, onBack, onUpdated, onDeleted }) {
       <VoiceHeader title="목소리 수정하기" onBack={busy ? undefined : onBack} onDelete={remove} />
       <div className="voice-detail-body">
         <section className="voice-detail-card">
-          <div className="voice-sample-list">
-            {voiceSamplePhrases.map((phrase) => {
-              const isPlaying = playingPhrase === phrase;
-              return (
-                <button type="button" key={phrase} onClick={() => previewSample(phrase)}
-                  disabled={voice.requiresVerification || busy}
-                  aria-label={`${phrase} ${isPlaying ? '재생 중지' : '재생'}`} aria-pressed={isPlaying}>
-                  {isPlaying
-                    ? <span className="voice-stop-small" aria-hidden="true" />
-                    : <img src={asset('voice-play-small.svg')} alt="" />}
-                  <span>{phrase}</span>
-                </button>
-              );
-            })}
-          </div>
+          <VoicePhraseList sharedPhrases={sharedPhrases} pendingPhrases={pendingPhrases}
+            message={phraseMessage} playingPhrase={playingPhrase}
+            playDisabled={voice.requiresVerification || busy} addDisabled={busy}
+            onPlay={previewSample} onAdd={addPhrase} />
           <label className="voice-name-field">
             <span>목소리 이름</span>
             <input type="text" value={name} onChange={(event) => setName(event.target.value)}
@@ -341,7 +364,7 @@ function VoiceDetail({ voice, onBack, onUpdated, onDeleted }) {
   );
 }
 
-function VoiceFlow({ onExit, onSaved }) {
+function VoiceFlow({ sharedPhrases, phraseMessage, onExit, onSaved }) {
   const [step, setStep] = useState(1);
   const [seconds, setSeconds] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -353,6 +376,7 @@ function VoiceFlow({ onExit, onSaved }) {
   const [error, setError] = useState('');
   const [isReviewPlaying, setIsReviewPlaying] = useState(false);
   const [playingPhrase, setPlayingPhrase] = useState('');
+  const [pendingPhrases, setPendingPhrases] = useState([]);
   const [previewBusy, setPreviewBusy] = useState(false);
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -516,21 +540,15 @@ function VoiceFlow({ onExit, onSaved }) {
       stopPlayback();
       return;
     }
-    let text = phrase.replace(/[“”]/g, '');
-    if (phrase === '직접 입력하기') {
-      text = window.prompt('재생할 문장을 입력해주세요 (500자 이내)', '')?.trim() || '';
-    }
+    const text = phrase.trim();
     if (!text) return;
     setPreviewBusy(true);
     setError('');
     stopPlayback();
     try {
-      const response = await apiResponse(await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voiceId: registered.voiceId, text }),
-      }));
-      audioUrlRef.current = URL.createObjectURL(await response.blob());
+      audioUrlRef.current = URL.createObjectURL(
+        await generateOwnedTts(fetch, DEFAULT_HOME_ID, registered.voiceId, text),
+      );
       const audio = new Audio(audioUrlRef.current);
       audioRef.current = audio;
       const finish = () => {
@@ -547,6 +565,21 @@ function VoiceFlow({ onExit, onSaved }) {
       setError(cause.message || '목소리 미리듣기에 실패했습니다.');
     } finally {
       setPreviewBusy(false);
+    }
+  };
+
+  const addPhrase = () => {
+    if (busy || previewBusy) return;
+    setError('');
+    const input = window.prompt('저장할 문구를 입력해주세요 (500자 이내)', '');
+    try {
+      setPendingPhrases(stageSharedPhrase(
+        [...DEFAULT_VOICE_PHRASES, ...sharedPhrases.map((phrase) => phrase.text)],
+        pendingPhrases,
+        input,
+      ));
+    } catch (cause) {
+      setError(cause.message || '공유 문구를 추가하지 못했습니다.');
     }
   };
 
@@ -603,14 +636,12 @@ function VoiceFlow({ onExit, onSaved }) {
     stopPlayback();
     setBusy(true);
     try {
-      await apiResponse(await fetch(`/api/voice/registered/${encodeURIComponent(registered.voiceId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ homeId: DEFAULT_HOME_ID, name: voiceName.trim() }),
-      }));
+      await saveVoiceEdits(
+        fetch, DEFAULT_HOME_ID, registered.voiceId, voiceName.trim(), pendingPhrases,
+      );
       onSaved();
     } catch (cause) {
-      setError(cause.message || '목소리 이름 저장에 실패했습니다.');
+      setError(cause.message || '목소리와 문구 저장에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -638,8 +669,13 @@ function VoiceFlow({ onExit, onSaved }) {
             voiceName={voiceName}
             onVoiceNameChange={setVoiceName}
             onPreviewSample={previewSample}
+            sharedPhrases={sharedPhrases}
+            pendingPhrases={pendingPhrases}
+            phraseMessage={phraseMessage}
+            onAddPhrase={addPhrase}
             requiresVerification={registered?.requiresVerification}
             playingPhrase={playingPhrase}
+            busy={busy}
             previewBusy={previewBusy}
           />
         )}
@@ -659,8 +695,10 @@ function VoiceFlow({ onExit, onSaved }) {
 export default function LocalVoiceTrainingPage({ onBack }) {
   const [mode, setMode] = useState('overview');
   const [registeredVoices, setRegisteredVoices] = useState([]);
+  const [sharedPhrases, setSharedPhrases] = useState([]);
   const [selectedVoice, setSelectedVoice] = useState(null);
   const [message, setMessage] = useState('등록된 목소리를 조회 중이에요.');
+  const [phraseMessage, setPhraseMessage] = useState('공유 문구를 조회 중이에요.');
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
@@ -680,17 +718,35 @@ export default function LocalVoiceTrainingPage({ onBack }) {
   }, [revision]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    loadSharedPhrases(fetch, DEFAULT_HOME_ID, controller.signal)
+      .then((phrases) => {
+        setSharedPhrases(phrases);
+        setPhraseMessage('');
+      })
+      .catch((cause) => {
+        if (cause.name !== 'AbortError') {
+          setPhraseMessage(cause.message || '공유 문구를 조회하지 못했습니다.');
+        }
+      });
+    return () => controller.abort();
+  }, [revision]);
+
+  useEffect(() => {
     document.querySelector('.screen-scroll')?.scrollTo({ top: 0 });
   }, [mode]);
 
   if (mode === 'flow') {
-    return <VoiceFlow onExit={() => { setMode('overview'); setRevision((value) => value + 1); }}
+    return <VoiceFlow sharedPhrases={sharedPhrases} phraseMessage={phraseMessage}
+      onExit={() => { setMode('overview'); setRevision((value) => value + 1); }}
       onSaved={() => { setMode('overview'); setRevision((value) => value + 1); }} />;
   }
 
   if (mode === 'detail' && selectedVoice) {
     return <VoiceDetail
       voice={selectedVoice}
+      sharedPhrases={sharedPhrases}
+      phraseMessage={phraseMessage}
       onBack={() => { setSelectedVoice(null); setMode('overview'); }}
       onUpdated={(updated) => {
         setRegisteredVoices((current) => current.map((voice) => (
@@ -698,6 +754,7 @@ export default function LocalVoiceTrainingPage({ onBack }) {
         )));
         setSelectedVoice(null);
         setMode('overview');
+        setRevision((value) => value + 1);
       }}
       onDeleted={(voiceId) => {
         setRegisteredVoices((current) => current.filter((voice) => voice.voiceId !== voiceId));

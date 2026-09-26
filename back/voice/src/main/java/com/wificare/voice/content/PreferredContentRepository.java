@@ -8,6 +8,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,37 +26,32 @@ public class PreferredContentRepository {
     }
 
     public List<ContentItem> list(String homeId) {
-        String sql = "SELECT kind, item_id, display_name, video_id FROM ("
-                + "SELECT 'image' AS kind, image_id AS item_id, display_name, NULL::varchar AS video_id, created_at "
-                + "FROM public.image_data WHERE home_id = ? "
-                + "UNION ALL "
-                + "SELECT 'youtube' AS kind, link_id AS item_id, display_name, video_id, created_at "
-                + "FROM public.youtube_data WHERE home_id = ?"
-                + ") AS content ORDER BY created_at DESC, kind, item_id DESC";
+        String sql = "SELECT content_id, content_type::text AS content_type, content_name, content_url "
+                + "FROM public.preferred_content WHERE resident_thinq_id = ? "
+                + "ORDER BY created_at DESC, content_id DESC";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
-            statement.setString(2, homeId);
             try (ResultSet result = statement.executeQuery()) {
                 List<ContentItem> items = new ArrayList<>();
                 while (result.next()) {
-                    String kind = result.getString("kind");
-                    long id = result.getLong("item_id");
-                    String videoId = result.getString("video_id");
-                    items.add(kind.equals("image")
-                            ? imageItem(id, homeId, result.getString("display_name"))
-                            : youtubeItem(id, result.getString("display_name"), videoId));
+                    UUID id = result.getObject("content_id", UUID.class);
+                    String type = result.getString("content_type").toLowerCase(Locale.ROOT);
+                    String name = result.getString("content_name");
+                    items.add(type.equals("image") ? imageItem(id, homeId, name)
+                            : youtubeItem(id, name, result.getString("content_url")));
                 }
                 return items;
             }
         } catch (SQLException | IllegalStateException error) {
-            throw new ContentStoreUnavailableException(error);
+            throw unavailable(error);
         }
     }
 
     public ContentItem saveImage(String homeId, String name, byte[] bytes, String mimeType) {
-        String sql = "INSERT INTO public.image_data "
-                + "(home_id, display_name, image_data, mime_type, size_bytes) VALUES (?, ?, ?, ?, ?) "
-                + "RETURNING image_id";
+        String sql = "INSERT INTO public.preferred_content "
+                + "(resident_thinq_id, content_type, content_name, content_url, image_data, mime_type, size_bytes) "
+                + "VALUES (?, CAST('IMAGE' AS public.content_type_enum), ?, NULL, ?, ?, ?) "
+                + "RETURNING content_id";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
             statement.setString(2, name);
@@ -63,97 +60,100 @@ public class PreferredContentRepository {
             statement.setInt(5, bytes.length);
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
-                return imageItem(result.getLong(1), homeId, name);
+                return imageItem(result.getObject(1, UUID.class), homeId, name);
             }
         } catch (SQLException | IllegalStateException error) {
-            if (error instanceof SQLException sqlError) {
-                log.warn("Image insert failed: SQLSTATE={}", sqlError.getSQLState());
-            }
-            throw new ContentStoreUnavailableException(error);
+            throw unavailable(error);
         }
     }
 
     public ContentItem saveYoutube(String homeId, String name, String videoId) {
         String url = "https://www.youtube.com/watch?v=" + videoId;
-        String sql = "INSERT INTO public.youtube_data "
-                + "(home_id, display_name, youtube_url, video_id) VALUES (?, ?, ?, ?) RETURNING link_id";
+        String sql = "INSERT INTO public.preferred_content "
+                + "(resident_thinq_id, content_type, content_name, content_url, image_data, mime_type, size_bytes) "
+                + "VALUES (?, CAST('YOUTUBE' AS public.content_type_enum), ?, ?, NULL, NULL, NULL) "
+                + "RETURNING content_id";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
             statement.setString(2, name);
             statement.setString(3, url);
-            statement.setString(4, videoId);
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
-                return youtubeItem(result.getLong(1), name, videoId);
+                return youtubeItem(result.getObject(1, UUID.class), name, url);
             }
         } catch (SQLException | IllegalStateException error) {
-            throw new ContentStoreUnavailableException(error);
+            throw unavailable(error);
         }
     }
 
-    public ImageBlob image(long imageId, String homeId) {
-        String sql = "SELECT image_data, mime_type FROM public.image_data "
-                + "WHERE image_id = ? AND home_id = ?";
+    public ImageBlob image(UUID imageId, String homeId) {
+        String sql = "SELECT image_data, mime_type FROM public.preferred_content "
+                + "WHERE content_id = ? AND resident_thinq_id = ? "
+                + "AND content_type = CAST('IMAGE' AS public.content_type_enum)";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, imageId);
+            statement.setObject(1, imageId);
             statement.setString(2, homeId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) throw new ContentNotFoundException();
                 return new ImageBlob(result.getBytes(1), result.getString(2));
             }
         } catch (SQLException | IllegalStateException error) {
-            throw new ContentStoreUnavailableException(error);
+            throw unavailable(error);
         }
     }
 
-    public ContentItem rename(String type, long itemId, String homeId, String name) {
-        String sql = switch (type) {
-            case "image" -> "UPDATE public.image_data SET display_name = ? "
-                    + "WHERE image_id = ? AND home_id = ? RETURNING image_id, NULL::varchar AS video_id";
-            case "youtube" -> "UPDATE public.youtube_data SET display_name = ? "
-                    + "WHERE link_id = ? AND home_id = ? RETURNING link_id, video_id";
-            default -> throw new IllegalArgumentException("콘텐츠 종류가 올바르지 않습니다.");
-        };
+    public ContentItem rename(String type, UUID itemId, String homeId, String name) {
+        String sql = "UPDATE public.preferred_content SET content_name = ? "
+                + "WHERE content_id = ? AND resident_thinq_id = ? "
+                + "AND content_type = CAST(? AS public.content_type_enum) RETURNING content_url";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, name);
-            statement.setLong(2, itemId);
+            statement.setObject(2, itemId);
             statement.setString(3, homeId);
+            statement.setString(4, type.toUpperCase(Locale.ROOT));
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) throw new ContentItemNotFoundException();
-                return type.equals("image")
-                        ? imageItem(result.getLong(1), homeId, name)
-                        : youtubeItem(result.getLong(1), name, result.getString("video_id"));
+                return type.equals("image") ? imageItem(itemId, homeId, name)
+                        : youtubeItem(itemId, name, result.getString("content_url"));
             }
         } catch (SQLException | IllegalStateException error) {
-            throw new ContentStoreUnavailableException(error);
+            throw unavailable(error);
         }
     }
 
-    public void delete(String type, long itemId, String homeId) {
-        String sql = switch (type) {
-            case "image" -> "DELETE FROM public.image_data WHERE image_id = ? AND home_id = ?";
-            case "youtube" -> "DELETE FROM public.youtube_data WHERE link_id = ? AND home_id = ?";
-            default -> throw new IllegalArgumentException("콘텐츠 종류가 올바르지 않습니다.");
-        };
+    public void delete(String type, UUID itemId, String homeId) {
+        String sql = "DELETE FROM public.preferred_content "
+                + "WHERE content_id = ? AND resident_thinq_id = ? "
+                + "AND content_type = CAST(? AS public.content_type_enum)";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, itemId);
+            statement.setObject(1, itemId);
             statement.setString(2, homeId);
+            statement.setString(3, type.toUpperCase(Locale.ROOT));
             if (statement.executeUpdate() != 1) throw new ContentItemNotFoundException();
         } catch (SQLException | IllegalStateException error) {
-            throw new ContentStoreUnavailableException(error);
+            throw unavailable(error);
         }
     }
 
-    private static ContentItem imageItem(long id, String homeId, String name) {
+    private static ContentItem imageItem(UUID id, String homeId, String name) {
         String encodedHomeId = URLEncoder.encode(homeId, StandardCharsets.UTF_8);
         return new ContentItem("image-" + id, "image", name,
                 "/api/content/images/" + id + "?home_id=" + encodedHomeId, null);
     }
 
-    private static ContentItem youtubeItem(long id, String name, String videoId) {
+    private static ContentItem youtubeItem(UUID id, String name, String url) {
+        String videoId = ContentValidation.youtubeVideoId(url);
+        String normalizedUrl = "https://www.youtube.com/watch?v=" + videoId;
         return new ContentItem("youtube-" + id, "youtube", name,
                 "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg",
-                "https://www.youtube.com/watch?v=" + videoId);
+                normalizedUrl);
+    }
+
+    private static ContentStoreUnavailableException unavailable(Exception error) {
+        if (error instanceof SQLException sqlError) {
+            log.warn("Preferred content DB operation failed: SQLSTATE={}", sqlError.getSQLState());
+        }
+        return new ContentStoreUnavailableException(error);
     }
 
     public record ImageBlob(byte[] bytes, String mimeType) {
