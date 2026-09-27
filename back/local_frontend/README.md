@@ -79,16 +79,16 @@ npm run dev
 상태 API를 제공하고, 이 프론트가 같은 origin에서 생활자 TV 화면도 제공합니다.
 
 - 보호자 화면: `http://127.0.0.1:5175/`
-- 생활자 TV 화면: `http://127.0.0.1:5175/player/home_23`
+- 생활자 TV 화면: `http://127.0.0.1:5175/player`
 - WebSocket: 현재 location을 기준으로 자동 구성되는 `/ws/playback`
 
 다른 맥북에서 TV 화면을 열 때는 프론트를 LAN에 노출한 주소의
-`/player/home_23`을 사용합니다. TV 화면에서 최초 한 번 연결 코드를 입력하고
+`/player`를 사용합니다. TV 화면에서 최초 한 번 연결 코드를 입력하고
 **시연 화면 준비**를 누릅니다. 이 클릭으로 YouTube IFrame 초기화, 전체화면 요청,
 Screen Wake Lock 및 WebSocket READY 등록이 진행됩니다. 전체화면은 브라우저 정책상
 반드시 사용자 클릭에서만 요청할 수 있습니다. 준비 완료 후에는 순수한 검은 화면이
 되고, 영상도 같은 탭의 IFrame에서만 재생합니다. 팝업이나 일반 YouTube fallback은
-사용하지 않습니다. 운영자 상태 확인은 `/player/home_23?debug=1`에서만 표시됩니다.
+사용하지 않습니다. 운영자 상태 확인은 `/player?debug=1`에서만 표시됩니다.
 
 안정 돌봄 화면은 `/api/anger/playback-status`를 주기적으로 확인합니다. 준비된 Player가 없으면
 마이크와 녹음을 시작하지 않습니다. Player가 준비된 뒤에도 사용자가 **감지 시작**을

@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  decidePlayCommand, homeIdFromPlayerPath, PlaybackRequestGuard, playbackWebSocketUrl,
+  decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
   TV_PLAYER_STATE, validatePlayCommand,
 } from './tvPlayerProtocol.mjs';
+import { SAFETY_CARE_HOME_ID } from './safetyCareApi.mjs';
+import { resolvePlayerRoute } from './playerRoute.mjs';
 
 const command = {
   type: 'PLAY',
@@ -14,9 +16,27 @@ const command = {
   expires_at: '2026-09-27T00:00:15.000Z',
 };
 
-test('Player 전용 경로에서 생활자 ID를 읽는다', () => {
-  assert.equal(homeIdFromPlayerPath('/player/home_23'), 'home_23');
-  assert.equal(homeIdFromPlayerPath('/'), null);
+test('/player는 고정 생활자로 Player를 열고 보호자 루트와 분리한다', () => {
+  assert.deepEqual(resolvePlayerRoute('/player'), { kind: 'PLAYER', homeId: SAFETY_CARE_HOME_ID });
+  assert.deepEqual(resolvePlayerRoute('/player', '?debug=1'), {
+    kind: 'PLAYER', homeId: SAFETY_CARE_HOME_ID,
+  });
+  assert.deepEqual(resolvePlayerRoute('/'), { kind: 'GUARDIAN' });
+});
+
+test('기존 home_23 경로는 query와 hash를 보존해 replace 대상 URL을 만든다', () => {
+  assert.deepEqual(resolvePlayerRoute('/player/home_23'), { kind: 'REDIRECT', url: '/player' });
+  assert.deepEqual(resolvePlayerRoute('/player/home_23', '?debug=1'), {
+    kind: 'REDIRECT', url: '/player?debug=1',
+  });
+  assert.deepEqual(resolvePlayerRoute('/player/', '?debug=1', '#status'), {
+    kind: 'REDIRECT', url: '/player?debug=1#status',
+  });
+});
+
+test('임의 생활자와 중첩 Player 경로는 home_23에 연결하지 않는다', () => {
+  assert.deepEqual(resolvePlayerRoute('/player/home_24'), { kind: 'NOT_FOUND' });
+  assert.deepEqual(resolvePlayerRoute('/player/home_23/extra'), { kind: 'NOT_FOUND' });
 });
 
 test('현재 origin에서 ws와 wss 주소를 만든다', () => {

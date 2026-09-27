@@ -11,11 +11,6 @@ export const TV_PLAYER_STATE = Object.freeze({
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
-export function homeIdFromPlayerPath(pathname) {
-  const match = String(pathname).match(/^\/player\/([A-Za-z0-9_-]+)\/?$/);
-  return match ? match[1] : null;
-}
-
 export function playbackWebSocketUrl(location) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${location.host}/ws/playback`;

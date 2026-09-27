@@ -54,8 +54,8 @@ curl -sS http://127.0.0.1:3001/health
 준비된 브라우저가 없으면 `409 PLAYBACK_NOT_READY`, Player 서버에 연결할 수 없으면
 재생 명령 후 `PLAYING` 확인이 오지 않으면 `503 PLAYBACK_ACK_TIMEOUT`을 반환합니다.
 
-Player는 별도 3002 서버가 아니라 동일 프론트의 `/player/{home_id}`입니다. 배포에서는
-`https://현재도메인/player/home_23`, WebSocket은 같은 origin의 `/ws/playback`을 사용합니다.
+Player는 별도 3002 서버가 아니라 동일 프론트의 `/player`입니다. 배포에서는
+`https://현재도메인/player`, WebSocket은 같은 origin의 `/ws/playback`을 사용합니다.
 도메인을 코드에 하드코딩하지 않습니다. 연결 코드는 URL이나 WebSocket 메시지에 포함하지 않습니다.
 
 오디오는 최대 20MiB이며 WebM, OGG, WAV, MP4 시그니처를 확인합니다. 메모리에서만

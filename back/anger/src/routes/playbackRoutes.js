@@ -5,6 +5,7 @@ import {
   PairingAttemptLimiter,
 } from '../services/playerSession.js';
 import { badRequest, tooManyRequests } from '../errors.js';
+import { PLAYER_CONTROL_URL } from '../constants/player.js';
 
 function secureRequest(request, mode) {
   if (mode === 'true') return true;
@@ -59,7 +60,7 @@ export function createPlaybackRouter({ config, playbackGateway }) {
         ready_players: status.readyPlayers,
         connected_players: status.connectedPlayers,
         busy: status.busy,
-        control_url: `/player/${encodeURIComponent(homeId)}`,
+        control_url: PLAYER_CONTROL_URL,
       });
     } catch (error) { next(error); }
   });

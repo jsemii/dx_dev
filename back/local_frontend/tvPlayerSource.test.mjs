@@ -6,19 +6,43 @@ const componentUrl = new URL('./TvPlayerPage.jsx', import.meta.url);
 const mainUrl = new URL('./main.jsx', import.meta.url);
 const playerMainUrl = new URL('./playerMain.jsx', import.meta.url);
 const cssUrl = new URL('./tv-player.css', import.meta.url);
+const nginxUrl = new URL('../../deploy/integrated_front/nginx.conf', import.meta.url);
 
 test('/player 경로는 보호자 main 대신 Player 전용 entry만 로드한다', async () => {
   const source = await readFile(mainUrl, 'utf8');
-  assert.match(source, /if \(playerRoute\)/);
+  assert.match(source, /resolvePlayerRoute/);
+  assert.match(source, /playerRoute\.kind === 'PLAYER'/);
   assert.match(source, /import\('\.\/playerMain\.jsx'\)/);
   assert.match(source, /else[\s\S]*import\('\.\.\/\.\.\/frontend\/frontend\/src\/main\.jsx'\)/);
 });
 
+test('기존 Player 주소는 replace redirect하고 잘못된 생활자 경로는 404로 차단한다', async () => {
+  const source = await readFile(mainUrl, 'utf8');
+  assert.match(source, /window\.location\.replace\(playerRoute\.url\)/);
+  assert.match(source, /playerRoute\.kind === 'NOT_FOUND'/);
+  assert.match(source, /올바르지 않은 Player 주소입니다/);
+});
+
 test('Player entry는 production에서도 전용 CSS를 직접 적용한다', async () => {
   const source = await readFile(playerMainUrl, 'utf8');
+  assert.match(source, /SAFETY_CARE_HOME_ID/);
   assert.match(source, /import playerCss from '\.\/tv-player\.css\?inline'/);
   assert.match(source, /nulbom-tv-player-style/);
   assert.match(source, /style\.textContent = playerCss/);
+});
+
+test('Player는 고정 생활자로 pairing과 WebSocket REGISTER를 수행한다', async () => {
+  const mainSource = await readFile(playerMainUrl, 'utf8');
+  const componentSource = await readFile(componentUrl, 'utf8');
+  assert.match(mainSource, /homeId=\{SAFETY_CARE_HOME_ID\}/);
+  assert.match(componentSource, /pairPlayer\(fetch, homeId, pairingCode\.trim\(\)\)/);
+  assert.match(componentSource, /send\(\{ type: 'REGISTER', home_id: homeId \}\)/);
+});
+
+test('Nginx는 exact /player와 기존 하위 Player 경로를 SPA로 전달한다', async () => {
+  const source = await readFile(nginxUrl, 'utf8');
+  assert.match(source, /location = \/player \{\s*try_files \/index\.html =404;/);
+  assert.match(source, /location \^~ \/player\/ \{\s*try_files \$uri \$uri\/ \/index\.html;/);
 });
 
 test('Player는 검은 전체 화면이며 READY에서 안내와 커서를 숨긴다', async () => {

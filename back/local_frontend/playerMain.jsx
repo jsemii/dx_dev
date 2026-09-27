@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import TvPlayerPage from './TvPlayerPage.jsx';
-import { homeIdFromPlayerPath } from './tvPlayerProtocol.mjs';
+import { SAFETY_CARE_HOME_ID } from './safetyCareApi.mjs';
 import playerCss from './tv-player.css?inline';
 
 // Keep the Player stylesheet owned by this entry. Vite may not preload CSS
@@ -13,5 +13,6 @@ if (!document.getElementById('nulbom-tv-player-style')) {
   document.head.append(style);
 }
 
-const homeId = homeIdFromPlayerPath(window.location.pathname);
-createRoot(document.getElementById('root')).render(<TvPlayerPage homeId={homeId} />);
+createRoot(document.getElementById('root')).render(
+  <TvPlayerPage homeId={SAFETY_CARE_HOME_ID} />,
+);

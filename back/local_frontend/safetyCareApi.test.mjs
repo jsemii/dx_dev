@@ -53,11 +53,11 @@ test('Player 상태 응답은 준비 수와 제어 URL을 검증한다', async (
     assert.equal(options.method, 'GET');
     return response(200, {
       status: 'NOT_READY', available: true, ready: false, ready_players: 0,
-      control_url: '/player/home_23',
+      control_url: '/player',
     });
   }, 'home_23');
   assert.equal(status.ready, false);
-  assert.equal(status.control_url, '/player/home_23');
+  assert.equal(status.control_url, '/player');
 });
 
 test('PLAYBACK_NOT_READY 오류 코드와 안전 문구를 보존한다', async () => {

@@ -58,7 +58,7 @@ test('Player 상태 API는 준비 여부와 설정된 제어 URL을 반환한다
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, {
     status: 'READY', available: true, ready: true, ready_players: 1,
-    control_url: '/player/home_23',
+    control_url: '/player',
   });
 });
 

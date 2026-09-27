@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { validateHomeId } from '../validation.js';
+import { PLAYER_CONTROL_URL } from '../constants/player.js';
 
 export function createPlaybackStatusRouter({ playbackClient }) {
   const router = Router();
@@ -14,7 +15,7 @@ export function createPlaybackStatusRouter({ playbackClient }) {
         available: true,
         ready: status.ready,
         ready_players: status.readyPlayers,
-        control_url: `/player/${encodeURIComponent(homeId)}`,
+        control_url: PLAYER_CONTROL_URL,
       });
     } catch (error) {
       if (error?.code === 'PLAYBACK_UNAVAILABLE') {
@@ -23,7 +24,7 @@ export function createPlaybackStatusRouter({ playbackClient }) {
           available: false,
           ready: false,
           ready_players: 0,
-          control_url: `/player/${encodeURIComponent(request.query.home_id || '')}`,
+          control_url: PLAYER_CONTROL_URL,
         });
       }
       return next(error);
