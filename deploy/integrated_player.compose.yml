@@ -1,0 +1,30 @@
+services:
+  anger:
+    image: nulbom-anger:predeploy
+    build:
+      context: ../back/anger
+    env_file:
+      - ../back/anger/.env
+    networks:
+      nulbom-shared:
+        aliases:
+          - nulbom-anger
+    restart: unless-stopped
+
+  integrated-front:
+    image: nulbom-integrated-front:predeploy
+    build:
+      context: ..
+      dockerfile: deploy/integrated_front/Dockerfile
+    depends_on:
+      anger:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8088:80"
+    networks:
+      - nulbom-shared
+    restart: unless-stopped
+
+networks:
+  nulbom-shared:
+    name: nulbom-shared-predeploy

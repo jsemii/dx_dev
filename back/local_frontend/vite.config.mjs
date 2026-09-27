@@ -14,6 +14,7 @@ const localDailyReport = path.join(bridgeDir, 'LocalDailyReport.jsx');
 const localVoicePage = path.join(bridgeDir, 'LocalVoiceTrainingPage.jsx');
 const localContentPage = path.join(bridgeDir, 'LocalPreferredContentPage.jsx');
 const localMealPage = path.join(bridgeDir, 'LocalMealMedicationCarePage.jsx');
+const localCalmPage = path.join(bridgeDir, 'LocalCalmCarePage.jsx');
 const localNeulbomData = path.join(bridgeDir, 'LocalNeulbomData.mjs');
 const teamNeulbomPage = path.join(teamFrontend, 'src/NeulbomPage.jsx');
 const expandedApplianceDefault = "  const [expandedDevices, setExpandedDevices] = useState(() => new Set(['purifier', 'refrigerator', 'tv']));";
@@ -48,6 +49,9 @@ if (!readFileSync(path.join(teamFrontend, 'src/NeulbomPage.jsx'), 'utf8').includ
 }
 if (!readFileSync(path.join(teamFrontend, 'src/NeulbomPage.jsx'), 'utf8').includes("import DailyReport from './DailyReport.jsx'")) {
   throw new Error('팀원 데일리 리포트 import가 변경됐습니다. 로컬 리포트 연결을 확인하세요.');
+}
+if (!readFileSync(path.join(teamFrontend, 'src/NeulbomPage.jsx'), 'utf8').includes("import CalmCarePage from './CalmCarePage.jsx'")) {
+  throw new Error('팀원 안정 돌봄 화면 import가 변경됐습니다. 로컬 분노 감지 연결을 확인하세요.');
 }
 
 export default defineConfig({
@@ -90,6 +94,7 @@ export default defineConfig({
       { find: './VoiceTrainingPage.jsx', replacement: localVoicePage },
       { find: './PreferredContentPage.jsx', replacement: localContentPage },
       { find: './MealMedicationCarePage.jsx', replacement: localMealPage },
+      { find: './CalmCarePage.jsx', replacement: localCalmPage },
       { find: './data/neulbomData.js', replacement: localNeulbomData },
       { find: 'react-dom', replacement: path.join(bridgeDir, 'node_modules/react-dom') },
       { find: 'react', replacement: path.join(bridgeDir, 'node_modules/react') },
@@ -102,6 +107,10 @@ export default defineConfig({
     strictPort: true,
     fs: { allow: [bridgeDir, teamFrontend] },
     proxy: {
+      '/api/safety-care': { target: 'http://127.0.0.1:3001', changeOrigin: false },
+      '/api/anger': { target: 'http://127.0.0.1:3001', changeOrigin: false },
+      '/api/playback': { target: 'http://127.0.0.1:3001', changeOrigin: false },
+      '/ws/playback': { target: 'ws://127.0.0.1:3001', ws: true, changeOrigin: false },
       '/api/voice': { target: 'http://127.0.0.1:8081', changeOrigin: false },
       // Preserve the browser Host: Spring rejects LAN Origin + rewritten localhost Host on POST.
       '/api/content': { target: 'http://127.0.0.1:8081', changeOrigin: false },
