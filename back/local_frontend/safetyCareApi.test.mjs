@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import viteConfig from './vite.config.mjs';
 import {
-  analyzeAnger, getPlaybackStatus, getSafetyCareSetting, setSafetyCareEnabled,
+  analyzeAnger, getPlaybackStatus, getSafetyCareSetting, setSafetyCareEnabled, stopPlayback,
 } from './safetyCareApi.mjs';
 
 const response = (status, body) => ({
@@ -49,15 +49,30 @@ test('분석 요청은 home_id, UUID session_id, audio만 multipart로 보낸다
 
 test('Player 상태 응답은 준비 수와 제어 URL을 검증한다', async () => {
   const status = await getPlaybackStatus(async (url, options) => {
-    assert.equal(url, '/api/anger/playback-status?home_id=home_23');
+    assert.equal(url, '/api/playback/status?home_id=home_23');
     assert.equal(options.method, 'GET');
     return response(200, {
       status: 'NOT_READY', available: true, ready: false, ready_players: 0,
+      connected_players: 1, busy: false,
       control_url: '/player',
     });
   }, 'home_23');
   assert.equal(status.ready, false);
   assert.equal(status.control_url, '/player');
+});
+
+test('STOP 요청은 생활자만 전송하고 READY 확인 응답을 검증한다', async () => {
+  let captured;
+  const stopped = await stopPlayback(async (url, options) => {
+    captured = { url, options };
+    return response(200, {
+      home_id: 'home_23', stopped: true, status: 'READY', ready: true,
+    });
+  }, 'home_23');
+  assert.equal(captured.url, '/api/playback/stop');
+  assert.equal(captured.options.method, 'POST');
+  assert.deepEqual(JSON.parse(captured.options.body), { home_id: 'home_23' });
+  assert.equal(stopped.ready, true);
 });
 
 test('PLAYBACK_NOT_READY 오류 코드와 안전 문구를 보존한다', async () => {
@@ -84,13 +99,18 @@ test('프론트는 원본 팀 파일을 수정하지 않고 로컬 안정 돌봄
   assert.doesNotMatch(source, /openControl\(url\)/);
   assert.match(source, /감지를 시작할 수 있습니다/);
   assert.match(source, /getPlaybackStatus/);
-  assert.match(source, /blockForPlayer/);
-  assert.match(source, /status\.status !== 'BUSY'/);
-  assert.match(source, /const setting = await getSafetyCareSetting\(fetch, SAFETY_CARE_HOME_ID\)/);
+  assert.match(source, /syncPlaybackMonitor/);
+  assert.match(source, /onTransientError/);
+  assert.match(source, /playbackControllerRef\.current\?\.poll\(\)/);
+  assert.match(source, /ANGER_MONITOR_STATE\.PLAYER_CHECKING/);
+  assert.match(source, /ANGER_MONITOR_STATE\.READY_TO_START/);
+  assert.match(source, /resumeDetectionWorkflow/);
+  assert.match(source, /stopPlayback/);
   assert.doesNotMatch(source, /if \(setting\.enabled\) await monitorRef\.current\.start\(\)/);
   const resumeFlow = source.match(/const resumeDetection = useCallback\([\s\S]*?\}, \[enabled, onEnabledChange, saving\]\);/)?.[0] || '';
-  assert.match(resumeFlow, /getSafetyCareSetting/);
+  assert.match(resumeFlow, /resumeDetectionWorkflow/);
   assert.doesNotMatch(resumeFlow, /setSafetyCareEnabled/);
   assert.equal(viteConfig.server.proxy['/api/safety-care'].target, 'http://127.0.0.1:3001');
   assert.equal(viteConfig.server.proxy['/api/anger'].target, 'http://127.0.0.1:3001');
+  assert.equal(viteConfig.server.proxy['/api/playback'].target, 'http://127.0.0.1:3001');
 });

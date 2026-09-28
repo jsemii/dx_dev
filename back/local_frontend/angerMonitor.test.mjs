@@ -137,8 +137,17 @@ test('감지 성공 후 자동 재개하지 않고 DETECTED 상태에서 사용�
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(testHarness.monitor.state, ANGER_MONITOR_STATE.DETECTED);
   assert.equal(testHarness.analyses(), 1);
+  assert.equal(testHarness.track.stopped, true);
   await testHarness.monitor.resume();
   assert.equal(testHarness.monitor.state, ANGER_MONITOR_STATE.LISTENING);
+});
+
+test('영상 중지 대기 상태에서는 마이크 자원을 해제한다', async () => {
+  const testHarness = harness();
+  await testHarness.monitor.start();
+  testHarness.monitor.beginPlaybackStop();
+  assert.equal(testHarness.monitor.state, ANGER_MONITOR_STATE.STOPPING_PLAYBACK);
+  assert.equal(testHarness.track.stopped, true);
 });
 
 test('재개한 다음 감지는 새 session_id를 사용하고 이전 결과를 재사용하지 않는다', async () => {

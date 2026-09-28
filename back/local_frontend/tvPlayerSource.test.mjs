@@ -36,7 +36,7 @@ test('Player는 고정 생활자로 pairing과 WebSocket REGISTER를 수행한�
   const componentSource = await readFile(componentUrl, 'utf8');
   assert.match(mainSource, /homeId=\{SAFETY_CARE_HOME_ID\}/);
   assert.match(componentSource, /pairPlayer\(fetch, homeId, pairingCode\.trim\(\)\)/);
-  assert.match(componentSource, /send\(\{ type: 'REGISTER', home_id: homeId \}\)/);
+  assert.match(componentSource, /send\(\{ type: 'REGISTER', home_id: homeId \}, target\)/);
 });
 
 test('Nginx는 exact /player와 기존 하위 Player 경로를 SPA로 전달한다', async () => {
@@ -67,7 +67,7 @@ test('준비 클릭 전 READY를 전송하지 않고 준비 완료 후에만 등
   assert.match(prepare, /loadYouTubeApi\(\), connectSocket\(\)/);
   assert.match(prepare, /createYouTubePlayer/);
   assert.match(prepare, /prepared\.current = true/);
-  assert.match(prepare, /announceReady\(\)/);
+  assert.match(prepare, /announceReady\(webSocket\)/);
   assert.match(source, /requestFullscreen/);
   assert.match(source, /wakeLock/);
 });
@@ -76,4 +76,14 @@ test('잘못된 pairing code 뒤에도 입력을 고쳐 다시 시도할 수 있
   const source = await readFile(componentUrl, 'utf8');
   assert.match(source, /setState\(paired \? TV_PLAYER_STATE\.ERROR : TV_PLAYER_STATE\.SETUP\)/);
   assert.match(source, /tv-player__setup-error/);
+});
+
+test('Player는 단일 소켓을 사용하고 PLAY를 받은 소켓으로 ACK하며 STOP을 처리한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  assert.match(source, /new SinglePlayerSocket/);
+  assert.match(source, /PLAYING'[^\n]*request_id: playback\.requestId[^\n]*playback\.socket/);
+  assert.match(source, /command\.type === 'STOP'/);
+  assert.match(source, /player\.current\?\.stopVideo/);
+  assert.match(source, /type: 'STOPPED'/);
+  assert.match(source, /socketManager\.current\?\.dispose\(\)/);
 });

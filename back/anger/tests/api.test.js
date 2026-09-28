@@ -50,15 +50,40 @@ function testApp(overrides = {}) {
   });
 }
 
-test('Player 상태 API는 준비 여부와 설정된 제어 URL을 반환한다', async () => {
+test('canonical과 호환 Player 상태 API는 동일한 Gateway 응답을 반환한다', async () => {
   const app = testApp({
     playbackClient: { getStatus() { return { ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false }; } },
   });
-  const response = await withRequest(app, (client) => client.get('/api/anger/playback-status?home_id=home_23'));
+  await withRequest(app, async (client) => {
+    const canonical = await client.get('/api/playback/status?home_id=home_23');
+    const compatibility = await client.get('/api/anger/playback-status?home_id=home_23');
+    assert.equal(canonical.status, 200);
+    assert.deepEqual(canonical.body, {
+      status: 'READY', available: true, ready: true, ready_players: 1,
+      connected_players: 1, busy: false,
+      control_url: '/player',
+    });
+    assert.deepEqual(compatibility.body, canonical.body);
+  });
+});
+
+test('Player STOP API는 STOPPED 확인 뒤 READY 상태를 반환한다', async () => {
+  const calls = [];
+  const app = testApp({
+    playbackClient: {
+      getStatus() { return { ready: false, readyPlayers: 0, connectedPlayers: 1, busy: true }; },
+      async stopPlayback(homeId) {
+        calls.push(homeId);
+        return { stopped: true, ready: true };
+      },
+    },
+  });
+  const response = await withRequest(app, (client) => client.post('/api/playback/stop')
+    .send({ home_id: 'home_23' }));
   assert.equal(response.status, 200);
+  assert.deepEqual(calls, ['home_23']);
   assert.deepEqual(response.body, {
-    status: 'READY', available: true, ready: true, ready_players: 1,
-    control_url: '/player',
+    home_id: 'home_23', stopped: true, status: 'READY', ready: true,
   });
 });
 

@@ -6,8 +6,11 @@ export const ANGER_MONITOR_STATE = Object.freeze({
   ANALYZING: 'ANALYZING',
   NOT_DETECTED: 'NOT_DETECTED',
   DETECTED: 'DETECTED',
+  STOPPING_PLAYBACK: 'STOPPING_PLAYBACK',
   ERROR: 'ERROR',
+  PLAYER_CHECKING: 'PLAYER_CHECKING',
   PLAYER_NOT_READY: 'PLAYER_NOT_READY',
+  READY_TO_START: 'READY_TO_START',
 });
 
 export const ANGER_THRESHOLD_DB = -40;
@@ -50,6 +53,9 @@ export class AngerMonitor {
 
   emit(state, details = {}) {
     this.state = state;
+    if (![ANGER_MONITOR_STATE.PLAYER_CHECKING, ANGER_MONITOR_STATE.PLAYER_NOT_READY].includes(state)) {
+      this.blockedMessage = null;
+    }
     this.onState?.({ state, ...details });
   }
 
@@ -161,11 +167,13 @@ export class AngerMonitor {
         if (generation !== this.generation) return;
         this.busy = false;
         this.analysisController = null;
+        this.releaseMedia();
         this.emit(result.detected ? ANGER_MONITOR_STATE.DETECTED : ANGER_MONITOR_STATE.NOT_DETECTED, { result });
       } catch (error) {
         if (generation !== this.generation || error?.name === 'AbortError') return;
         this.busy = false;
         this.analysisController = null;
+        this.releaseMedia();
         const messages = {
           PLAYBACK_NOT_READY: 'YouTube 재생 화면을 먼저 준비해 주세요.',
           PLAYER_OFFLINE: '생활자 재생 화면이 연결되지 않았습니다.',
@@ -190,15 +198,42 @@ export class AngerMonitor {
 
   async resume() {
     if (![ANGER_MONITOR_STATE.NOT_DETECTED, ANGER_MONITOR_STATE.ERROR,
-      ANGER_MONITOR_STATE.DETECTED, ANGER_MONITOR_STATE.PLAYER_NOT_READY]
+      ANGER_MONITOR_STATE.DETECTED, ANGER_MONITOR_STATE.STOPPING_PLAYBACK,
+      ANGER_MONITOR_STATE.PLAYER_CHECKING, ANGER_MONITOR_STATE.PLAYER_NOT_READY,
+      ANGER_MONITOR_STATE.READY_TO_START]
       .includes(this.state)) return;
     await this.start();
   }
 
+  beginPlaybackStop() {
+    this.releaseMedia();
+    this.emit(ANGER_MONITOR_STATE.STOPPING_PLAYBACK);
+  }
+
+  reportError(message, code) {
+    this.releaseMedia();
+    this.emit(ANGER_MONITOR_STATE.ERROR, { message, code });
+  }
+
   blockForPlayer(message = 'YouTube 재생 화면을 먼저 준비해 주세요.') {
-    if (this.state === ANGER_MONITOR_STATE.PLAYER_NOT_READY && !this.stream && !this.recorder) return;
+    if (this.state === ANGER_MONITOR_STATE.PLAYER_NOT_READY
+        && this.blockedMessage === message && !this.stream && !this.recorder) return;
     this.releaseResources();
+    this.blockedMessage = message;
     this.emit(ANGER_MONITOR_STATE.PLAYER_NOT_READY, { message });
+  }
+
+  waitForPlayer(message = '생활자 재생 화면 상태를 확인하고 있습니다.') {
+    if (this.state === ANGER_MONITOR_STATE.PLAYER_CHECKING
+        && this.blockedMessage === message && !this.stream && !this.recorder) return;
+    this.releaseResources();
+    this.blockedMessage = message;
+    this.emit(ANGER_MONITOR_STATE.PLAYER_CHECKING, { message });
+  }
+
+  readyForDetection() {
+    this.releaseResources();
+    this.emit(ANGER_MONITOR_STATE.READY_TO_START);
   }
 
   cancelLoop() {
@@ -206,12 +241,9 @@ export class AngerMonitor {
     this.frameId = undefined;
   }
 
-  releaseResources() {
-    this.generation += 1;
+  releaseMedia() {
     this.cancelLoop();
     this.clearTimer(this.recordingTimer);
-    this.analysisController?.abort();
-    this.analysisController = null;
     if (this.recorder?.state === 'recording') this.recorder.stop();
     this.recorder = null;
     this.stream?.getTracks().forEach((track) => track.stop());
@@ -224,6 +256,13 @@ export class AngerMonitor {
     this.aboveSince = null;
     this.lastLevelAt = null;
     this.onLevel?.(null);
+  }
+
+  releaseResources() {
+    this.generation += 1;
+    this.analysisController?.abort();
+    this.analysisController = null;
+    this.releaseMedia();
   }
 
   stop() {

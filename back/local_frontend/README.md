@@ -90,12 +90,17 @@ Screen Wake Lock 및 WebSocket READY 등록이 진행됩니다. 전체화면은 
 되고, 영상도 같은 탭의 IFrame에서만 재생합니다. 팝업이나 일반 YouTube fallback은
 사용하지 않습니다. 운영자 상태 확인은 `/player?debug=1`에서만 표시됩니다.
 
-안정 돌봄 화면은 `/api/anger/playback-status`를 주기적으로 확인합니다. 준비된 Player가 없으면
+안정 돌봄 화면은 canonical 상태 API인 `/api/playback/status`를 주기적으로 확인합니다.
+기존 `/api/anger/playback-status`는 호환용으로 동일 응답을 반환합니다. 준비된 Player가 없으면
 마이크와 녹음을 시작하지 않습니다. Player가 준비된 뒤에도 사용자가 **감지 시작**을
 눌러야 마이크를 다시 시작하므로 연결 복구 시 자동 녹음이나 중복 STT가 발생하지 않습니다.
 안정 돌봄을 켜면 브라우저 마이크가 음량을 감지하고 10초 녹음 후 Anger API로
 전송합니다. 미감지 결과에서는 자동 재개하지 않으며 **감지 재개**를 눌러야 다시
-시작합니다.
+시작합니다. 분노 감지 후 영상 재생 중 **감지 재개**를 누르면 프론트가
+`POST /api/playback/stop`을 호출하고 Player의 `STOPPED`와 Gateway의 `READY`를
+확인한 뒤 설정이 여전히 ON인지 조회합니다. 이 순서가 끝난 후에만 마이크를 다시
+열어 재생 중인 영상 소리가 새 녹음에 들어가지 않도록 합니다. Player가 OFFLINE 또는
+NOT_READY이면 빈 화면 대신 재생 화면 준비 안내를 표시합니다.
 
 제품 상세는 `public.appliance_data.appliances`의 실제 사건을 사용합니다. TV는
 동일 episode의 켜짐·꺼짐을 우선 연결하고, 남은 사건이 엄격한
