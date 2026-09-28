@@ -221,6 +221,27 @@ test('STOP은 STOPPED ACK 뒤 READY로 복귀하고 READY에서는 멱등 성공
   assert.deepEqual(await gateway.stopPlayback('home_23'), { stopped: false, ready: true });
 });
 
+test('STOP 대기 중 READY heartbeat만으로 마이크 재개 조건을 충족하지 않는다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = '88888888-8888-4888-8888-888888888887';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+
+  let resolved = false;
+  const stopping = gateway.stopPlayback('home_23').then((result) => {
+    resolved = true;
+    return result;
+  });
+  socket.receive({ type: 'PONG', player_state: 'READY', request_id: null });
+  await new Promise(setImmediate);
+  assert.equal(resolved, false);
+  assert.equal(gateway.getStatus('home_23').busy, true);
+  socket.receive({ type: 'STOPPED', request_id: requestId });
+  assert.deepEqual(await stopping, { stopped: true, ready: true });
+});
+
 test('STOP timeout은 BUSY와 현재 요청을 정리한다', async () => {
   const { gateway, socket } = readyGateway({ ackTimeoutMs: 5 });
   const requestId = '99999999-9999-4999-8999-999999999999';
@@ -257,4 +278,140 @@ test('PLAY → STOP → READY 흐름을 새 request_id로 3회 반복한다', as
     socket.sent.filter((message) => message.type === 'PLAY').map((message) => message.request_id), ids,
   );
   assert.equal(socket.sent.filter((message) => message.type === 'STOP').length, 3);
+});
+
+test('PONG의 실제 Player 상태로 READY와 BUSY를 재동기화한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+
+  socket.receive({ type: 'PONG', player_state: 'PLAYING', request_id: requestId });
+  assert.deepEqual(await playing, { requestId });
+  assert.equal(gateway.getStatus('home_23').busy, true);
+
+  socket.receive({ type: 'PONG', player_state: 'ENDED', request_id: requestId });
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+  });
+});
+
+test('상태 heartbeat가 계속 오면 PLAYING BUSY를 유지하고 지연된 이전 상태는 무시한다', async () => {
+  let now = 1_000;
+  const { gateway, socket } = readyGateway({
+    now: () => now,
+    stateHeartbeatTimeoutMs: 45_000,
+    connectionTimeoutMs: 120_000,
+  });
+  const requestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb6';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+
+  now += 30_000;
+  socket.receive({ type: 'PONG', player_state: 'PLAYING', request_id: requestId });
+  socket.receive({
+    type: 'PONG', player_state: 'READY',
+    request_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb7',
+  });
+  now += 30_000;
+  gateway.heartbeat();
+  assert.equal(socket.closeCode, undefined);
+  assert.equal(gateway.getStatus('home_23').busy, true);
+});
+
+test('WebSocket 재연결 시 REGISTER의 실제 PLAYING 상태를 복구한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+
+  const reconnected = new FakeSocket();
+  gateway.attach(reconnected, 'home_23');
+  reconnected.receive({
+    type: 'REGISTER', home_id: 'home_23', player_state: 'PLAYING', request_id: requestId,
+  });
+  assert.equal(gateway.getStatus('home_23').busy, true);
+  socket.close(1006, 'network changed');
+  assert.equal(gateway.getStatus('home_23').connectedPlayers, 0);
+  reconnected.receive({ type: 'PONG', player_state: 'PLAYING', request_id: requestId });
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: false, readyPlayers: 0, connectedPlayers: 1, busy: true,
+  });
+});
+
+test('PLAYING 상태 heartbeat가 끊기면 BUSY를 해제하고 소켓을 종료한다', async () => {
+  let now = 1_000;
+  const logs = [];
+  const { gateway, socket } = readyGateway({
+    now: () => now,
+    stateHeartbeatTimeoutMs: 45_000,
+    connectionTimeoutMs: 120_000,
+    logger: { info(_message, fields) { logs.push(fields); } },
+  });
+  const requestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+
+  now += 45_001;
+  gateway.heartbeat();
+  assert.equal(socket.closeCode, 4002);
+  assert.equal(socket.closeReason, 'player state heartbeat timeout');
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: false, readyPlayers: 0, connectedPlayers: 0, busy: false,
+  });
+  assert.equal(logs.some((entry) => entry.event === 'TIMEOUT'
+    && entry.reason === 'PLAYING_STATE_HEARTBEAT_TIMEOUT'
+    && entry.request_id === requestId), true);
+});
+
+test('구조화 로그는 상태 전환 식별자와 경과 시간만 기록한다', async () => {
+  let now = 10_000;
+  const logs = [];
+  const { gateway, socket } = readyGateway({
+    now: () => now,
+    logger: { info(message, fields) { logs.push({ message, fields }); } },
+  });
+  const requestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  now += 25;
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+  const stopping = gateway.stopPlayback('home_23');
+  await new Promise(setImmediate);
+  now += 30;
+  socket.receive({ type: 'STOPPED', request_id: requestId });
+  await stopping;
+
+  const endedRequestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb5';
+  const ending = gateway.requestPlayback({
+    homeId: 'home_23', content, requestId: endedRequestId,
+  });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: endedRequestId });
+  await ending;
+  now += 40;
+  socket.receive({ type: 'ENDED', request_id: endedRequestId });
+
+  const events = logs.map(({ fields }) => fields.event);
+  for (const event of ['REGISTER', 'READY', 'PLAY', 'PLAYING', 'ENDED', 'STOP', 'STOPPED']) {
+    assert.equal(events.includes(event), true, `${event} 로그가 필요합니다.`);
+  }
+  for (const { message, fields } of logs) {
+    assert.equal(message, 'Playback gateway event');
+    assert.equal(typeof fields.connection_id, 'string');
+    assert.equal(Number.isFinite(fields.elapsed_ms), true);
+    assert.equal('request_id' in fields, true);
+    assert.deepEqual(Object.keys(fields).sort(), [
+      'connection_id', 'elapsed_ms', 'event', 'home_id', 'reason', 'request_id',
+    ]);
+  }
+  const serialized = JSON.stringify(logs);
+  assert.doesNotMatch(serialized, /youtube\.com|OPENAI|DATABASE_URL|transcript|pairing/i);
 });

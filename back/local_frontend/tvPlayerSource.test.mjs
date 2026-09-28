@@ -36,7 +36,7 @@ test('Player는 고정 생활자로 pairing과 WebSocket REGISTER를 수행한�
   const componentSource = await readFile(componentUrl, 'utf8');
   assert.match(mainSource, /homeId=\{SAFETY_CARE_HOME_ID\}/);
   assert.match(componentSource, /pairPlayer\(fetch, homeId, pairingCode\.trim\(\)\)/);
-  assert.match(componentSource, /send\(\{ type: 'REGISTER', home_id: homeId \}, target\)/);
+  assert.match(componentSource, /type: 'REGISTER', home_id: homeId, player_state: 'READY'/);
 });
 
 test('Nginx는 exact /player와 기존 하위 Player 경로를 SPA로 전달한다', async () => {
@@ -98,4 +98,25 @@ test('4001로 교체된 Player는 자동 재연결하지 않는다', async () =>
   const replacedBranch = onClose.match(/if \(event\?\.code === 4001\) \{[\s\S]*?\n        \}/)?.[0] || '';
   assert.match(replacedBranch, /return;/);
   assert.doesNotMatch(replacedBranch, /scheduleReconnect/);
+});
+
+test('heartbeat와 재연결은 실제 Player 상태와 request_id를 보존한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  assert.match(source, /playerHeartbeatSnapshot/);
+  assert.match(source, /type: 'PONG'[\s\S]*player_state: 'READY'[\s\S]*request_id: null/);
+  assert.match(source, /send\(\{ type: 'PONG', at: command\.at, \.\.\.snapshot \}, sourceSocket\)/);
+  assert.match(source, /playback\.socket = webSocket/);
+  assert.match(source, /playback\.generation = generation/);
+  assert.match(source, /type: 'REGISTER', home_id: homeId, \.\.\.snapshot/);
+  assert.match(source, /type: 'PLAYING', request_id: playback\.requestId/);
+});
+
+test('일반 재연결에서는 재생을 유지하고 4001 교체에서만 영상을 중지한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  const onClose = source.match(/onClose: \(event, closedSocket\) => \{[\s\S]*?scheduleReconnect\([\s\S]*?\n      \},/)?.[0] || '';
+  const replacedBranch = onClose.match(/if \(event\?\.code === 4001\) \{[\s\S]*?\n        \}/)?.[0] || '';
+  assert.match(replacedBranch, /currentPlayback\.current = null/);
+  assert.match(replacedBranch, /stopVideo/);
+  const beforeReplaced = onClose.slice(0, onClose.indexOf("if (event?.code === 4001)"));
+  assert.doesNotMatch(beforeReplaced, /currentPlayback\.current = null|stopVideo/);
 });

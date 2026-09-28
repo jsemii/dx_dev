@@ -3,6 +3,8 @@ services:
     image: nulbom-anger:predeploy
     build:
       context: ../back/anger
+    deploy:
+      replicas: 1
     env_file:
       - ../back/anger/.env
     networks:

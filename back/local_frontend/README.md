@@ -92,6 +92,9 @@ Screen Wake Lock 및 WebSocket READY 등록이 진행됩니다. 전체화면은 
 같은 생활자의 새 Player가 READY가 되면 기존 Player는 close code `4001`로 종료되고
 자동 재연결하지 않습니다. 새 Player가 READY 되기 전까지는 기존 READY Player가 계속
 활성 상태를 유지합니다.
+heartbeat 응답에는 YouTube IFrame의 실제 상태와 현재 `request_id`를 포함합니다.
+일반 네트워크 재연결에서는 재생 중인 영상을 중지하지 않고 PLAYING 상태를 다시
+등록하며, 실제 영상이 종료된 경우 READY로 복구합니다.
 
 안정 돌봄 화면은 canonical 상태 API인 `/api/playback/status`를 주기적으로 확인합니다.
 기존 `/api/anger/playback-status`는 호환용으로 동일 응답을 반환합니다. 준비된 Player가 없으면
@@ -103,7 +106,8 @@ Screen Wake Lock 및 WebSocket READY 등록이 진행됩니다. 전체화면은 
 `POST /api/playback/stop`을 호출하고 Player의 `STOPPED`와 Gateway의 `READY`를
 확인한 뒤 설정이 여전히 ON인지 조회합니다. 이 순서가 끝난 후에만 마이크를 다시
 열어 재생 중인 영상 소리가 새 녹음에 들어가지 않도록 합니다. Player가 OFFLINE 또는
-NOT_READY이면 빈 화면 대신 재생 화면 준비 안내를 표시합니다.
+NOT_READY이면 빈 화면 대신 재생 화면 준비 안내를 표시합니다. 화면이 ERROR 상태여도
+Gateway가 BUSY라면 감지 재개 버튼을 활성화하고 동일한 STOP 복구 절차를 수행합니다.
 
 제품 상세는 `public.appliance_data.appliances`의 실제 사건을 사용합니다. TV는
 동일 episode의 켜짐·꺼짐을 우선 연결하고, 남은 사건이 엄격한

@@ -227,7 +227,7 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
       ANGER_MONITOR_STATE.PLAYER_NOT_READY,
       ANGER_MONITOR_STATE.READY_TO_START,
     ].includes(state);
-  const canResumeDetected = ['READY', 'BUSY'].includes(playbackStatus.status);
+  const canResumePlayback = ['READY', 'BUSY'].includes(playbackStatus.status);
   const showWaveform = [ANGER_MONITOR_STATE.LISTENING, ANGER_MONITOR_STATE.RECORDING].includes(state);
   const waveform = Array.from({ length: 40 }, (_, index) => (
     audioLevels[index - (40 - audioLevels.length)] ?? 0.03
@@ -253,13 +253,13 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
           {state === ANGER_MONITOR_STATE.NOT_DETECTED ? (
             <div className="local-calm-care-result-actions">
               <button type="button" disabled>분노 감지 안됨</button>
-              <button type="button" onClick={resumeDetection} disabled={!playerReady || saving}>감지 재개</button>
+              <button type="button" onClick={resumeDetection} disabled={!canResumePlayback || saving}>감지 재개</button>
             </div>
           ) : state === ANGER_MONITOR_STATE.DETECTED ? (
             <div className="local-calm-care-detected-result">
               <strong>분노 표현 감지됨</strong>
               <p>분노 표현을 감지했어요. 생활자 화면에서 안정 콘텐츠를 재생하고 있어요.</p>
-              <button type="button" onClick={resumeDetection} disabled={!canResumeDetected || saving}>감지 재개</button>
+              <button type="button" onClick={resumeDetection} disabled={!canResumePlayback || saving}>감지 재개</button>
             </div>
           ) : (
             <>
@@ -276,7 +276,7 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
                 </div>
               )}
               {state === ANGER_MONITOR_STATE.ERROR && (
-                <button type="button" onClick={resumeDetection} disabled={!playerReady || saving}>감지 재개</button>
+                <button type="button" onClick={resumeDetection} disabled={!canResumePlayback || saving}>감지 재개</button>
               )}
             </>
           )}

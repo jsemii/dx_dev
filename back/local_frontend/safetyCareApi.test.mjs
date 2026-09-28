@@ -106,6 +106,8 @@ test('프론트는 원본 팀 파일을 수정하지 않고 로컬 안정 돌봄
   assert.match(source, /ANGER_MONITOR_STATE\.READY_TO_START/);
   assert.match(source, /resumeDetectionWorkflow/);
   assert.match(source, /stopPlayback/);
+  assert.match(source, /const canResumePlayback = \['READY', 'BUSY'\]\.includes\(playbackStatus\.status\)/);
+  assert.match(source, /state === ANGER_MONITOR_STATE\.ERROR[\s\S]*disabled=\{!canResumePlayback \|\| saving\}/);
   assert.doesNotMatch(source, /if \(setting\.enabled\) await monitorRef\.current\.start\(\)/);
   const resumeFlow = source.match(/const resumeDetection = useCallback\([\s\S]*?\}, \[enabled, onEnabledChange, saving\]\);/)?.[0] || '';
   assert.match(resumeFlow, /resumeDetectionWorkflow/);

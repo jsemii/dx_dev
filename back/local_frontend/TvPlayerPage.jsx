@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getPlayerSession, pairPlayer } from './playerApi.mjs';
 import { SinglePlayerSocket } from './singlePlayerSocket.mjs';
 import {
-  decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl, TV_PLAYER_STATE,
+  decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
+  playerHeartbeatSnapshot, TV_PLAYER_STATE,
 } from './tvPlayerProtocol.mjs';
 
 const YOUTUBE_API = 'https://www.youtube.com/iframe_api';
@@ -81,10 +82,30 @@ export default function TvPlayerPage({ homeId }) {
   ), []);
 
   const announceReady = useCallback((target) => {
-    send({ type: 'REGISTER', home_id: homeId }, target);
+    send({
+      type: 'REGISTER', home_id: homeId, player_state: 'READY', request_id: null,
+    }, target);
     send({ type: 'READY' }, target);
     if (mounted.current) setState(TV_PLAYER_STATE.READY);
   }, [homeId, send]);
+
+  const heartbeatSnapshot = useCallback(() => playerHeartbeatSnapshot({
+    prepared: prepared.current,
+    uiState: stateRef.current,
+    requestId: currentPlayback.current?.requestId || null,
+    youtubeState: player.current?.getPlayerState?.(),
+  }), []);
+
+  const finishLocalPlayback = useCallback((playback) => {
+    if (!playback || currentPlayback.current?.requestId !== playback.requestId) return;
+    currentPlayback.current = null;
+    send({ type: 'ENDED', request_id: playback.requestId }, playback.socket);
+    player.current?.stopVideo?.();
+    setState(TV_PLAYER_STATE.ENDED);
+    window.setTimeout(() => {
+      if (mounted.current && prepared.current) announceReady(playback.socket);
+    }, 150);
+  }, [announceReady, send]);
 
   const onYouTubeState = useCallback((event) => {
     const playback = currentPlayback.current;
@@ -92,15 +113,9 @@ export default function TvPlayerPage({ homeId }) {
       setState(TV_PLAYER_STATE.PLAYING);
       send({ type: 'PLAYING', request_id: playback.requestId }, playback.socket);
     } else if (event.data === window.YT?.PlayerState?.ENDED && playback) {
-      currentPlayback.current = null;
-      send({ type: 'ENDED', request_id: playback.requestId }, playback.socket);
-      player.current?.stopVideo?.();
-      setState(TV_PLAYER_STATE.ENDED);
-      window.setTimeout(() => {
-        if (mounted.current && prepared.current) announceReady(playback.socket);
-      }, 150);
+      finishLocalPlayback(playback);
     }
-  }, [announceReady, send]);
+  }, [finishLocalPlayback, send]);
 
   const failPlayback = useCallback((code = 'PLAYBACK_FAILED', failed = currentPlayback.current) => {
     if (failed) {
@@ -118,7 +133,15 @@ export default function TvPlayerPage({ homeId }) {
     try { command = JSON.parse(event.data); } catch { return; }
     if (command.type === 'PING') {
       setDebugInfo((current) => ({ ...current, heartbeat: command.at || new Date().toISOString() }));
-      send({ type: 'PONG', at: command.at }, sourceSocket);
+      const snapshot = heartbeatSnapshot();
+      if (snapshot.player_state === 'ENDED' && currentPlayback.current) {
+        finishLocalPlayback(currentPlayback.current);
+        send({
+          type: 'PONG', at: command.at, player_state: 'READY', request_id: null,
+        }, sourceSocket);
+      } else {
+        send({ type: 'PONG', at: command.at, ...snapshot }, sourceSocket);
+      }
       return;
     }
     if (command.type === 'STOP') {
@@ -165,29 +188,45 @@ export default function TvPlayerPage({ homeId }) {
     } catch {
       failPlayback('PLAYBACK_FAILED', playback);
     }
-  }, [announceReady, failPlayback, homeId, send]);
+  }, [announceReady, failPlayback, finishLocalPlayback, heartbeatSnapshot, homeId, send]);
   handleSocketMessageRef.current = handleSocketMessage;
 
   const ensureSocketManager = useCallback(() => {
     if (socketManager.current) return socketManager.current;
     socketManager.current = new SinglePlayerSocket({
       createSocket: () => new WebSocket(playbackWebSocketUrl(window.location)),
-      onOpen: (webSocket) => {
+      onOpen: (webSocket, generation) => {
         setDebugInfo((current) => ({ ...current, socket: 'OPEN' }));
-        if (prepared.current && player.current) announceReady(webSocket);
+        if (!prepared.current || !player.current) return;
+        const playback = currentPlayback.current;
+        if (!playback) {
+          announceReady(webSocket);
+          return;
+        }
+        playback.socket = webSocket;
+        playback.generation = generation;
+        const snapshot = heartbeatSnapshot();
+        if (snapshot.player_state === 'ENDED') {
+          finishLocalPlayback(playback);
+          announceReady(webSocket);
+          return;
+        }
+        send({ type: 'REGISTER', home_id: homeId, ...snapshot }, webSocket);
+        send({ type: 'PLAYING', request_id: playback.requestId }, webSocket);
+        setState(TV_PLAYER_STATE.PLAYING);
       },
       onMessage: (event, webSocket, generation) => {
         handleSocketMessageRef.current?.(event, webSocket, generation);
       },
       onClose: (event, closedSocket) => {
         setDebugInfo((current) => ({ ...current, socket: 'CLOSED' }));
-        if (currentPlayback.current?.socket === closedSocket) {
-          currentPlayback.current = null;
-          player.current?.stopVideo?.();
-        }
         if (!mounted.current || !prepared.current) return;
         if (event?.code === 4001) {
           socketManager.current?.cancelReconnect();
+          if (currentPlayback.current?.socket === closedSocket) {
+            currentPlayback.current = null;
+            player.current?.stopVideo?.();
+          }
           prepared.current = false;
           setMessage('다른 생활자 재생 화면이 연결되었습니다.');
           setState(TV_PLAYER_STATE.ERROR);
@@ -200,7 +239,7 @@ export default function TvPlayerPage({ homeId }) {
       },
     });
     return socketManager.current;
-  }, [announceReady]);
+  }, [announceReady, finishLocalPlayback, heartbeatSnapshot, homeId, send]);
 
   const connectSocket = useCallback(() => ensureSocketManager().connect(), [ensureSocketManager]);
   connectSocketRef.current = connectSocket;

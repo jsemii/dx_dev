@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
-  TV_PLAYER_STATE, validatePlayCommand,
+  playerHeartbeatSnapshot, TV_PLAYER_STATE, validatePlayCommand,
 } from './tvPlayerProtocol.mjs';
 import { SAFETY_CARE_HOME_ID } from './safetyCareApi.mjs';
 import { resolvePlayerRoute } from './playerRoute.mjs';
@@ -42,6 +42,36 @@ test('임의 생활자와 중첩 Player 경로는 home_23에 연결하지 않는
 test('현재 origin에서 ws와 wss 주소를 만든다', () => {
   assert.equal(playbackWebSocketUrl({ protocol: 'https:', host: 'nulbom.example' }), 'wss://nulbom.example/ws/playback');
   assert.equal(playbackWebSocketUrl({ protocol: 'http:', host: '127.0.0.1:5175' }), 'ws://127.0.0.1:5175/ws/playback');
+});
+
+test('heartbeat는 YouTube 실제 상태와 현재 request_id를 함께 보고한다', () => {
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true,
+    uiState: TV_PLAYER_STATE.PLAYING,
+    requestId: command.request_id,
+    youtubeState: 1,
+  }), { player_state: 'PLAYING', request_id: command.request_id });
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true,
+    uiState: TV_PLAYER_STATE.PLAYING,
+    requestId: command.request_id,
+    youtubeState: 2,
+  }), { player_state: 'PAUSED', request_id: command.request_id });
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true,
+    uiState: TV_PLAYER_STATE.PLAYING,
+    requestId: command.request_id,
+    youtubeState: 0,
+  }), { player_state: 'ENDED', request_id: command.request_id });
+});
+
+test('재생 요청이 없을 때 준비 상태만 READY로 보고한다', () => {
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true, uiState: TV_PLAYER_STATE.READY, requestId: null,
+  }), { player_state: 'READY', request_id: null });
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: false, uiState: TV_PLAYER_STATE.SETUP, requestId: null,
+  }), { player_state: 'NOT_READY', request_id: null });
 });
 
 test('생활자·video ID·만료 시각을 검증한다', () => {
