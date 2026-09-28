@@ -94,7 +94,7 @@ test('ENDED 뒤 새 request_id로 같은 영상을 다시 0초 명령으로 보�
   assert.equal(gateway.getStatus('home_23').ready, true);
 });
 
-test('같은 생활자의 최신 REGISTER만 활성화하고 이전 close는 새 연결을 지우지 않는다', () => {
+test('새 Player가 REGISTER만 한 동안에는 기존 READY Player를 유지한다', async () => {
   const gateway = new PlaybackGateway();
   const first = new FakeSocket();
   const second = new FakeSocket();
@@ -103,15 +103,77 @@ test('같은 생활자의 최신 REGISTER만 활성화하고 이전 close는 새
   first.receive({ type: 'READY' });
   gateway.attach(second, 'home_23');
   second.receive({ type: 'REGISTER', home_id: 'home_23' });
+
+  assert.equal(first.closeCode, undefined);
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+  });
+  const requestId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4';
+  const pending = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  assert.equal(first.sent.some((message) => message.type === 'PLAY'), true);
+  assert.equal(second.sent.some((message) => message.type === 'PLAY'), false);
+  first.receive({ type: 'PLAYING', request_id: requestId });
+  await pending;
+  first.receive({ type: 'ENDED', request_id: requestId });
+});
+
+test('같은 생활자의 가장 최근 READY Player가 활성화되고 이전 close는 새 연결을 지우지 않는다', () => {
+  const gateway = new PlaybackGateway();
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  gateway.attach(first, 'home_23');
+  first.receive({ type: 'REGISTER', home_id: 'home_23' });
+  first.receive({ type: 'READY' });
+  gateway.attach(second, 'home_23');
+  second.receive({ type: 'REGISTER', home_id: 'home_23' });
+  assert.equal(first.closeCode, undefined);
   second.receive({ type: 'READY' });
 
   assert.equal(first.closeCode, 4001);
+  assert.equal(first.closeReason, 'replaced by ready player');
   assert.deepEqual(gateway.getStatus('home_23'), {
     ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
   });
   first.emit('close');
   assert.equal(gateway.getStatus('home_23').connectedPlayers, 1);
   assert.equal(gateway.getStatus('home_23').readyPlayers, 1);
+});
+
+test('여러 후보 중 READY를 가장 나중에 보낸 Player가 항상 우선권을 갖는다', () => {
+  const gateway = new PlaybackGateway();
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  const third = new FakeSocket();
+  for (const socket of [first, second, third]) {
+    gateway.attach(socket, 'home_23');
+    socket.receive({ type: 'REGISTER', home_id: 'home_23' });
+  }
+
+  first.receive({ type: 'READY' });
+  assert.equal(second.closeCode, undefined);
+  assert.equal(third.closeCode, undefined);
+  third.receive({ type: 'READY' });
+  assert.equal(first.closeCode, 4001);
+  assert.equal(second.closeCode, undefined);
+  second.receive({ type: 'READY' });
+  assert.equal(third.closeCode, 4001);
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+  });
+});
+
+test('준비되지 않은 새 Player가 연결 종료돼도 기존 READY Player에 영향이 없다', () => {
+  const { gateway, socket: active } = readyGateway();
+  const candidate = new FakeSocket();
+  gateway.attach(candidate, 'home_23');
+  candidate.receive({ type: 'REGISTER', home_id: 'home_23' });
+  candidate.close(1000, 'setup cancelled');
+
+  assert.equal(active.closeCode, undefined);
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+  });
 });
 
 test('PLAY 명령과 ACK는 활성 소켓 및 동일 request_id에만 결합한다', async () => {

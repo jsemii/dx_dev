@@ -54,7 +54,9 @@ curl -sS http://127.0.0.1:3001/health
 분석 API는 OpenAI STT 호출 전과 감지 성공 후 재생 직전에 해당 생활자의 Player 준비 상태를 확인합니다.
 준비된 브라우저가 없으면 `409 PLAYBACK_NOT_READY`, Player 서버에 연결할 수 없으면
 재생 명령 후 `PLAYING` 확인이 오지 않으면 `503 PLAYBACK_ACK_TIMEOUT`을 반환합니다.
-생활자별 활성 WebSocket은 하나만 유지하며 새 Player가 등록되면 이전 연결을 종료합니다.
+생활자별 활성 WebSocket은 하나만 유지합니다. 새 Player가 연결·등록되는 동안에는 기존
+READY Player를 유지하고, 새 Player가 READY를 보낸 순간에만 우선권을 이전합니다. 이때
+기존 Player는 WebSocket close code `4001`로 종료됩니다.
 영상 재생 중 감지 재개 요청은 `STOP → STOPPED → READY` 확인 후에만 마이크를 다시
 시작합니다. 중지 확인이 없으면 `503 PLAYBACK_STOP_TIMEOUT`을 반환하고 BUSY를 해제합니다.
 

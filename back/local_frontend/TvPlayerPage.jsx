@@ -187,6 +187,7 @@ export default function TvPlayerPage({ homeId }) {
         }
         if (!mounted.current || !prepared.current) return;
         if (event?.code === 4001) {
+          socketManager.current?.cancelReconnect();
           prepared.current = false;
           setMessage('다른 생활자 재생 화면이 연결되었습니다.');
           setState(TV_PLAYER_STATE.ERROR);
