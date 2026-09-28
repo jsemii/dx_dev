@@ -20,6 +20,7 @@ export class PlaybackGateway {
     this.setTimer = setTimer;
     this.clearTimer = clearTimer;
     this.players = new Map();
+    this.connections = new Map();
     this.seenRequestIds = new Set();
   }
 
@@ -37,6 +38,9 @@ export class PlaybackGateway {
       pendingStop: null,
       lastPongAt: this.now(),
     };
+    const connections = this.connections.get(homeId) || new Set();
+    connections.add(player);
+    this.connections.set(homeId, connections);
     socket.on('message', (raw) => this.handleMessage(player, raw));
     socket.on('close', () => this.detach(player));
     socket.on('error', () => this.detach(player));
@@ -68,31 +72,46 @@ export class PlaybackGateway {
   }
 
   register(player) {
-    const previous = this.players.get(player.homeId);
-    if (previous && previous !== player) {
-      this.players.set(player.homeId, player);
-      this.retire(previous, unavailable(
-        'PLAYBACK_REPLACED', '새 생활자 재생 화면이 연결되었습니다.',
-      ));
-      previous.socket.close(4001, 'replaced by newer player');
-    } else {
+    player.registered = true;
+    const active = this.players.get(player.homeId);
+    if (!active || !this.isConnected(active)) {
       this.players.set(player.homeId, player);
     }
-    player.registered = true;
     send(player.socket, {
       type: 'REGISTERED', home_id: player.homeId, connection_id: player.connectionId,
     });
   }
 
+  promoteReady(player) {
+    if (!player.registered || player.retired || player.socket.readyState !== OPEN) return;
+    const previous = this.players.get(player.homeId);
+    this.players.set(player.homeId, player);
+    player.ready = true;
+    player.busy = false;
+    if (previous && previous !== player) {
+      this.retire(previous, unavailable(
+        'PLAYBACK_REPLACED', '새 생활자 재생 화면이 준비되었습니다.',
+      ));
+      previous.socket.close(4001, 'replaced by ready player');
+    }
+  }
+
   detach(player) {
     if (this.players.get(player.homeId) === player) this.players.delete(player.homeId);
+    const connections = this.connections.get(player.homeId);
+    connections?.delete(player);
+    if (connections?.size === 0) this.connections.delete(player.homeId);
     this.retire(player);
+  }
+
+  isConnected(player) {
+    return !player.retired && player.socket.readyState === OPEN;
   }
 
   isActive(player) {
     return player.registered
       && this.players.get(player.homeId) === player
-      && player.socket.readyState === OPEN;
+      && this.isConnected(player);
   }
 
   finishPlayback(player) {
@@ -123,22 +142,26 @@ export class PlaybackGateway {
         player.socket.close(1008, 'home mismatch');
         return;
       }
-      if (!this.isActive(player)) this.register(player);
+      if (!player.registered) this.register(player);
       else send(player.socket, {
         type: 'REGISTERED', home_id: player.homeId, connection_id: player.connectionId,
       });
       return;
     }
-    if (!this.isActive(player)) return;
+    if (message?.type === 'PONG' && this.isConnected(player)) {
+      player.lastPongAt = this.now();
+      return;
+    }
+    if (!player.registered || !this.isConnected(player)) return;
     if (message?.type === 'READY') {
-      if (!player.currentRequestId && !player.busy) player.ready = true;
+      if (!player.currentRequestId && !player.busy) this.promoteReady(player);
       return;
     }
     if (message?.type === 'NOT_READY') {
       if (!player.busy) player.ready = false;
       return;
     }
-    if (message?.type === 'PONG') { player.lastPongAt = this.now(); return; }
+    if (!this.isActive(player)) return;
     if (!UUID.test(String(message?.request_id || ''))
         || message.request_id !== player.currentRequestId) return;
     if (message.type === 'PLAYING') {
@@ -282,7 +305,9 @@ export class PlaybackGateway {
   }
 
   heartbeat() {
-    for (const player of this.players.values()) {
+    const players = [...this.connections.values()].flatMap((connections) => [...connections]);
+    for (const player of players) {
+      if (!this.isConnected(player)) continue;
       const now = this.now();
       if (now - player.lastPongAt > 60_000) {
         player.socket.terminate?.();
@@ -293,8 +318,9 @@ export class PlaybackGateway {
   }
 
   close() {
-    const players = [...this.players.values()];
+    const players = [...this.connections.values()].flatMap((connections) => [...connections]);
     this.players.clear();
+    this.connections.clear();
     for (const player of players) {
       this.retire(player);
       player.socket.close(1001, 'server shutdown');

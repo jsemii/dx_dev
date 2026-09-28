@@ -87,3 +87,15 @@ test('Player는 단일 소켓을 사용하고 PLAY를 받은 소켓으로 ACK하
   assert.match(source, /type: 'STOPPED'/);
   assert.match(source, /socketManager\.current\?\.dispose\(\)/);
 });
+
+test('4001로 교체된 Player는 자동 재연결하지 않는다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  const onClose = source.match(/onClose: \(event, closedSocket\) => \{[\s\S]*?scheduleReconnect\([\s\S]*?\n      \},/)?.[0] || '';
+  assert.match(onClose, /event\?\.code === 4001/);
+  assert.match(onClose, /cancelReconnect\(\)/);
+  assert.match(onClose, /prepared\.current = false/);
+  assert.match(onClose, /setState\(TV_PLAYER_STATE\.ERROR\)/);
+  const replacedBranch = onClose.match(/if \(event\?\.code === 4001\) \{[\s\S]*?\n        \}/)?.[0] || '';
+  assert.match(replacedBranch, /return;/);
+  assert.doesNotMatch(replacedBranch, /scheduleReconnect/);
+});

@@ -89,6 +89,9 @@ Screen Wake Lock 및 WebSocket READY 등록이 진행됩니다. 전체화면은 
 반드시 사용자 클릭에서만 요청할 수 있습니다. 준비 완료 후에는 순수한 검은 화면이
 되고, 영상도 같은 탭의 IFrame에서만 재생합니다. 팝업이나 일반 YouTube fallback은
 사용하지 않습니다. 운영자 상태 확인은 `/player?debug=1`에서만 표시됩니다.
+같은 생활자의 새 Player가 READY가 되면 기존 Player는 close code `4001`로 종료되고
+자동 재연결하지 않습니다. 새 Player가 READY 되기 전까지는 기존 READY Player가 계속
+활성 상태를 유지합니다.
 
 안정 돌봄 화면은 canonical 상태 API인 `/api/playback/status`를 주기적으로 확인합니다.
 기존 `/api/anger/playback-status`는 호환용으로 동일 응답을 반환합니다. 준비된 Player가 없으면
