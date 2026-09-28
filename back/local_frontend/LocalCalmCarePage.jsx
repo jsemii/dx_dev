@@ -7,8 +7,14 @@ import {
   getPlaybackStatus,
   getSafetyCareSetting,
   setSafetyCareEnabled,
+  stopPlayback,
 } from './safetyCareApi.mjs';
 import { PlaybackReadinessController } from './playbackReadiness.mjs';
+import {
+  blockMonitorForPlayback,
+  syncPlaybackMonitor,
+} from './playbackStatusTransition.mjs';
+import { resumeDetectionWorkflow } from './resumeDetection.mjs';
 import './local-calm-care.css';
 
 const STATUS_MESSAGE = {
@@ -17,6 +23,10 @@ const STATUS_MESSAGE = {
   RECORDING: '10초 동안 녹음하고 있습니다.',
   ANALYZING: '녹음된 음성을 분석하고 있습니다.',
   DETECTED: '분노 표현을 감지했어요. 생활자 화면에서 안정 콘텐츠를 재생하고 있어요.',
+  STOPPING_PLAYBACK: '생활자 화면의 영상을 중지하고 감지를 다시 준비하고 있습니다.',
+  PLAYER_CHECKING: '생활자 재생 화면 상태를 확인하고 있습니다.',
+  PLAYER_NOT_READY: '생활자 재생 화면을 먼저 준비해 주세요.',
+  READY_TO_START: '감지를 시작할 수 있습니다.',
 };
 
 const INITIAL_PLAYBACK_STATUS = {
@@ -24,14 +34,10 @@ const INITIAL_PLAYBACK_STATUS = {
   available: false,
   ready: false,
   ready_players: 0,
+  connected_players: 0,
+  busy: false,
   control_url: '',
 };
-
-function playerUnavailableMessage(status) {
-  return status.available
-    ? '생활자 재생 화면을 먼저 준비해 주세요.'
-    : '생활자 재생 서비스에 연결할 수 없습니다.';
-}
 
 export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, onEnabledChange }) {
   const [enabled, setEnabled] = useState(false);
@@ -43,6 +49,7 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
   const mountedRef = useRef(true);
   const enabledRef = useRef(false);
   const playbackStatusRef = useRef(INITIAL_PLAYBACK_STATUS);
+  const playbackBlockedRef = useRef(false);
   const monitorRef = useRef(null);
   const playbackControllerRef = useRef(null);
 
@@ -78,9 +85,10 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
         setEnabled(setting.enabled);
         enabledRef.current = setting.enabled;
         onEnabledChange?.(setting.enabled);
-        if (setting.enabled && playbackStatusRef.current.status !== 'CHECKING'
-            && !playbackStatusRef.current.ready) {
-          monitorRef.current.blockForPlayer(playerUnavailableMessage(playbackStatusRef.current));
+        if (setting.enabled && !playbackStatusRef.current.ready) {
+          playbackBlockedRef.current = blockMonitorForPlayback(
+            monitorRef.current, playbackStatusRef.current,
+          );
         }
       })
       .catch((error) => {
@@ -105,9 +113,15 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
         if (!mountedRef.current) return;
         playbackStatusRef.current = status;
         setPlaybackStatus(status);
-        if (!status.ready && status.status !== 'BUSY' && enabledRef.current) {
-          monitorRef.current.blockForPlayer(playerUnavailableMessage(status));
-        }
+        playbackBlockedRef.current = syncPlaybackMonitor({
+          enabled: enabledRef.current,
+          monitor: monitorRef.current,
+          status,
+          blocked: playbackBlockedRef.current,
+        });
+      },
+      onTransientError: () => {
+        // Keep the last known state. A single polling failure must not turn READY into unavailable.
       },
       onError: () => {
         if (!mountedRef.current) return;
@@ -117,10 +131,13 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
           available: false,
           ready: false,
           ready_players: 0,
+          connected_players: 0,
+          busy: false,
         };
         playbackStatusRef.current = status;
         setPlaybackStatus(status);
         if (enabledRef.current) {
+          playbackBlockedRef.current = true;
           monitorRef.current.blockForPlayer('YouTube 재생 서버에 연결할 수 없습니다.');
         }
       },
@@ -136,7 +153,10 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
   const changeEnabled = useCallback(async (nextEnabled) => {
     if (loading || saving) return;
     setSaving(true);
-    if (!nextEnabled) monitorRef.current.stop();
+    if (!nextEnabled) {
+      playbackBlockedRef.current = false;
+      monitorRef.current.stop();
+    }
     try {
       const setting = await setSafetyCareEnabled(fetch, SAFETY_CARE_HOME_ID, nextEnabled);
       if (!mountedRef.current) return;
@@ -144,10 +164,15 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
       enabledRef.current = setting.enabled;
       onEnabledChange?.(setting.enabled);
       if (setting.enabled) {
-        if (playbackStatusRef.current.ready) await monitorRef.current.start();
-        else monitorRef.current.blockForPlayer(
-          playerUnavailableMessage(playbackStatusRef.current),
-        );
+        const refreshedStatus = await playbackControllerRef.current?.poll();
+        if (!mountedRef.current) return;
+        const status = refreshedStatus || playbackStatusRef.current;
+        if (status.ready) {
+          playbackBlockedRef.current = false;
+          await monitorRef.current.start();
+        } else {
+          playbackBlockedRef.current = blockMonitorForPlayback(monitorRef.current, status);
+        }
       }
     } catch (error) {
       if (mountedRef.current) {
@@ -160,31 +185,27 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
 
   const resumeDetection = useCallback(async () => {
     if (!enabled || saving) return;
-    if (!playbackStatusRef.current.ready) {
-      monitorRef.current.blockForPlayer(playerUnavailableMessage(playbackStatusRef.current));
-      return;
-    }
     setSaving(true);
     try {
-      const setting = await getSafetyCareSetting(fetch, SAFETY_CARE_HOME_ID);
+      const result = await resumeDetectionWorkflow({
+        homeId: SAFETY_CARE_HOME_ID,
+        monitor: monitorRef.current,
+        playbackStatus: playbackStatusRef.current,
+        getPlaybackStatus: (homeId) => getPlaybackStatus(fetch, homeId),
+        stopPlayback: (homeId) => stopPlayback(fetch, homeId),
+        getSetting: (homeId) => getSafetyCareSetting(fetch, homeId),
+      });
       if (!mountedRef.current) return;
-      if (!setting.enabled) {
-        monitorRef.current.stop();
+      if (!result.enabled) {
         setEnabled(false);
         enabledRef.current = false;
         onEnabledChange?.(false);
-        return;
-      }
-      if ([ANGER_MONITOR_STATE.NOT_DETECTED, ANGER_MONITOR_STATE.ERROR,
-        ANGER_MONITOR_STATE.DETECTED, ANGER_MONITOR_STATE.PLAYER_NOT_READY]
-        .includes(monitorRef.current.state)) {
-        await monitorRef.current.resume();
-      } else {
-        await monitorRef.current.start();
       }
     } catch (error) {
       if (mountedRef.current) {
-        setMonitorStatus({ state: ANGER_MONITOR_STATE.ERROR, message: error.message });
+        monitorRef.current.reportError(
+          error.message || '감지를 다시 시작하지 못했습니다.', error.code,
+        );
       }
     } finally {
       if (mountedRef.current) setSaving(false);
@@ -192,13 +213,21 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
   }, [enabled, onEnabledChange, saving]);
 
   const state = monitorStatus.state;
+  const playerReady = playbackStatus.ready;
   const showStatus = enabled && ![
     ANGER_MONITOR_STATE.OFF,
-    ANGER_MONITOR_STATE.PLAYER_NOT_READY,
-  ].includes(state);
-  const playerReady = playbackStatus.ready;
+    ANGER_MONITOR_STATE.READY_TO_START,
+  ].includes(state)
+    && !([ANGER_MONITOR_STATE.PLAYER_NOT_READY, ANGER_MONITOR_STATE.PLAYER_CHECKING]
+      .includes(state) && playerReady);
   const showDetectionStart = enabled && playerReady
-    && [ANGER_MONITOR_STATE.OFF, ANGER_MONITOR_STATE.PLAYER_NOT_READY].includes(state);
+    && [
+      ANGER_MONITOR_STATE.OFF,
+      ANGER_MONITOR_STATE.PLAYER_CHECKING,
+      ANGER_MONITOR_STATE.PLAYER_NOT_READY,
+      ANGER_MONITOR_STATE.READY_TO_START,
+    ].includes(state);
+  const canResumeDetected = ['READY', 'BUSY'].includes(playbackStatus.status);
   const showWaveform = [ANGER_MONITOR_STATE.LISTENING, ANGER_MONITOR_STATE.RECORDING].includes(state);
   const waveform = Array.from({ length: 40 }, (_, index) => (
     audioLevels[index - (40 - audioLevels.length)] ?? 0.03
@@ -224,17 +253,20 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
           {state === ANGER_MONITOR_STATE.NOT_DETECTED ? (
             <div className="local-calm-care-result-actions">
               <button type="button" disabled>분노 감지 안됨</button>
-              <button type="button" onClick={resumeDetection} disabled={!playerReady}>감지 재개</button>
+              <button type="button" onClick={resumeDetection} disabled={!playerReady || saving}>감지 재개</button>
             </div>
           ) : state === ANGER_MONITOR_STATE.DETECTED ? (
             <div className="local-calm-care-detected-result">
               <strong>분노 표현 감지됨</strong>
               <p>분노 표현을 감지했어요. 생활자 화면에서 안정 콘텐츠를 재생하고 있어요.</p>
-              <button type="button" onClick={resumeDetection} disabled={!playerReady}>감지 재개</button>
+              <button type="button" onClick={resumeDetection} disabled={!canResumeDetected || saving}>감지 재개</button>
             </div>
           ) : (
             <>
-              <strong>{state === ANGER_MONITOR_STATE.ERROR ? '감지 오류' : '안정 돌봄 감지 상태'}</strong>
+              <strong>{state === ANGER_MONITOR_STATE.ERROR ? '감지 오류'
+                : state === ANGER_MONITOR_STATE.PLAYER_NOT_READY ? '재생 화면 준비 필요'
+                  : state === ANGER_MONITOR_STATE.PLAYER_CHECKING ? '재생 화면 확인 중'
+                  : '안정 돌봄 감지 상태'}</strong>
               <p>{monitorStatus.message || STATUS_MESSAGE[state] || '감지를 중지했습니다.'}</p>
               {showWaveform && (
                 <div className="local-calm-care-waveform" role="img" aria-label="실시간 마이크 음량 파형">
@@ -244,7 +276,7 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
                 </div>
               )}
               {state === ANGER_MONITOR_STATE.ERROR && (
-                <button type="button" onClick={resumeDetection} disabled={!playerReady}>감지 재개</button>
+                <button type="button" onClick={resumeDetection} disabled={!playerReady || saving}>감지 재개</button>
               )}
             </>
           )}

@@ -76,7 +76,7 @@ export async function analyzeAnger(fetcher, homeId, sessionId, audio, options = 
 
 export async function getPlaybackStatus(fetcher, homeId, options = {}) {
   const query = new URLSearchParams({ home_id: homeId });
-  const response = await fetcher(`/api/anger/playback-status?${query}`, {
+  const response = await fetcher(`/api/playback/status?${query}`, {
     method: 'GET',
     signal: options.signal,
   });
@@ -88,9 +88,28 @@ export async function getPlaybackStatus(fetcher, homeId, options = {}) {
       || typeof body?.ready !== 'boolean'
       || !Number.isInteger(body?.ready_players)
       || body.ready_players < 0
+      || !Number.isInteger(body?.connected_players)
+      || body.connected_players < 0
+      || typeof body?.busy !== 'boolean'
       || typeof body?.control_url !== 'string'
       || !body.control_url.trim()) {
     throw new SafetyCareApiError('YouTube 재생 상태 응답 형식이 올바르지 않습니다.');
+  }
+  return body;
+}
+
+export async function stopPlayback(fetcher, homeId, options = {}) {
+  const response = await fetcher('/api/playback/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ home_id: homeId }),
+    signal: options.signal,
+  });
+  if (!response.ok) throw await responseError(response, '생활자 화면의 영상을 중지하지 못했습니다.');
+  const body = await response.json();
+  if (body?.home_id !== homeId || body?.status !== 'READY' || body?.ready !== true
+      || typeof body?.stopped !== 'boolean') {
+    throw new SafetyCareApiError('영상 중지 응답 형식이 올바르지 않습니다.');
   }
   return body;
 }

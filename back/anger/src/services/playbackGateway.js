@@ -25,56 +25,122 @@ export class PlaybackGateway {
 
   attach(socket, homeId) {
     const player = {
-      socket, homeId, registered: false, ready: false, busy: false,
-      currentRequestId: null, pendingAck: null, lastPongAt: this.now(),
+      connectionId: randomUUID(),
+      socket,
+      homeId,
+      registered: false,
+      retired: false,
+      ready: false,
+      busy: false,
+      currentRequestId: null,
+      pendingAck: null,
+      pendingStop: null,
+      lastPongAt: this.now(),
     };
-    let homes = this.players.get(homeId);
-    if (!homes) {
-      homes = new Set();
-      this.players.set(homeId, homes);
-    }
-    homes.add(player);
     socket.on('message', (raw) => this.handleMessage(player, raw));
     socket.on('close', () => this.detach(player));
     socket.on('error', () => this.detach(player));
     return player;
   }
 
-  detach(player) {
+  rejectPending(player, error) {
     if (player.pendingAck) {
       this.clearTimer(player.pendingAck.timer);
-      player.pendingAck.reject(unavailable('PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.'));
+      player.pendingAck.reject(error);
       player.pendingAck = null;
     }
-    const homes = this.players.get(player.homeId);
-    homes?.delete(player);
-    if (homes?.size === 0) this.players.delete(player.homeId);
+    if (player.pendingStop) {
+      this.clearTimer(player.pendingStop.timer);
+      player.pendingStop.reject(error);
+      player.pendingStop = null;
+    }
+  }
+
+  retire(player, error = unavailable(
+    'PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.',
+  )) {
+    this.rejectPending(player, error);
+    player.registered = false;
+    player.retired = true;
+    player.ready = false;
+    player.busy = false;
+    player.currentRequestId = null;
+  }
+
+  register(player) {
+    const previous = this.players.get(player.homeId);
+    if (previous && previous !== player) {
+      this.players.set(player.homeId, player);
+      this.retire(previous, unavailable(
+        'PLAYBACK_REPLACED', '새 생활자 재생 화면이 연결되었습니다.',
+      ));
+      previous.socket.close(4001, 'replaced by newer player');
+    } else {
+      this.players.set(player.homeId, player);
+    }
+    player.registered = true;
+    send(player.socket, {
+      type: 'REGISTERED', home_id: player.homeId, connection_id: player.connectionId,
+    });
+  }
+
+  detach(player) {
+    if (this.players.get(player.homeId) === player) this.players.delete(player.homeId);
+    this.retire(player);
+  }
+
+  isActive(player) {
+    return player.registered
+      && this.players.get(player.homeId) === player
+      && player.socket.readyState === OPEN;
+  }
+
+  finishPlayback(player) {
+    if (player.pendingAck) {
+      this.clearTimer(player.pendingAck.timer);
+      player.pendingAck.resolve({ requestId: player.currentRequestId });
+      player.pendingAck = null;
+    }
+    if (player.pendingStop) {
+      this.clearTimer(player.pendingStop.timer);
+      player.pendingStop.resolve({ stopped: true, ready: true });
+      player.pendingStop = null;
+    }
+    player.busy = false;
+    player.ready = true;
+    player.currentRequestId = null;
   }
 
   handleMessage(player, raw) {
     let message;
     try { message = JSON.parse(String(raw)); } catch { return; }
     if (message?.type === 'REGISTER') {
+      if (player.retired) {
+        player.socket.close(4001, 'connection retired');
+        return;
+      }
       if (message.home_id !== player.homeId) {
         player.socket.close(1008, 'home mismatch');
         return;
       }
-      player.registered = true;
-      send(player.socket, { type: 'REGISTERED', home_id: player.homeId });
+      if (!this.isActive(player)) this.register(player);
+      else send(player.socket, {
+        type: 'REGISTERED', home_id: player.homeId, connection_id: player.connectionId,
+      });
       return;
     }
-    if (!player.registered) return;
+    if (!this.isActive(player)) return;
     if (message?.type === 'READY') {
-      player.ready = true;
-      player.busy = false;
+      if (!player.currentRequestId && !player.busy) player.ready = true;
       return;
     }
     if (message?.type === 'NOT_READY') {
-      player.ready = false;
+      if (!player.busy) player.ready = false;
       return;
     }
     if (message?.type === 'PONG') { player.lastPongAt = this.now(); return; }
-    if (!UUID.test(String(message?.request_id || '')) || message.request_id !== player.currentRequestId) return;
+    if (!UUID.test(String(message?.request_id || ''))
+        || message.request_id !== player.currentRequestId) return;
     if (message.type === 'PLAYING') {
       player.busy = true;
       player.ready = false;
@@ -85,20 +151,18 @@ export class PlaybackGateway {
       }
       return;
     }
-    if (message.type === 'ENDED') {
-      player.busy = false;
-      player.ready = true;
-      player.currentRequestId = null;
+    if (message.type === 'ENDED' || message.type === 'STOPPED') {
+      this.finishPlayback(player);
       return;
     }
     if (message.type === 'FAILED') {
-      if (player.pendingAck) {
-        this.clearTimer(player.pendingAck.timer);
-        const code = message.code === 'PLAYER_BUSY' ? 'PLAYER_BUSY' : 'PLAYBACK_FAILED';
-        player.pendingAck.reject(conflict(code, code === 'PLAYER_BUSY'
-          ? '생활자 화면에서 콘텐츠를 재생 중입니다.' : '생활자 화면에서 콘텐츠를 재생할 수 없습니다.'));
-        player.pendingAck = null;
-      }
+      const playbackError = conflict(
+        message.code === 'PLAYER_BUSY' ? 'PLAYER_BUSY' : 'PLAYBACK_FAILED',
+        message.code === 'PLAYER_BUSY'
+          ? '생활자 화면에서 콘텐츠를 재생 중입니다.'
+          : '생활자 화면에서 콘텐츠를 재생할 수 없습니다.',
+      );
+      this.rejectPending(player, playbackError);
       player.busy = false;
       player.ready = message.code === 'PLAYER_BUSY';
       player.currentRequestId = null;
@@ -106,14 +170,14 @@ export class PlaybackGateway {
   }
 
   getStatus(homeId) {
-    const players = [...(this.players.get(homeId) || [])]
-      .filter((player) => player.socket.readyState === OPEN && player.registered);
-    const readyPlayers = players.filter((player) => player.ready && !player.busy).length;
+    const player = this.players.get(homeId);
+    const connected = Boolean(player && this.isActive(player));
+    const ready = Boolean(connected && player.ready && !player.busy);
     return {
-      ready: readyPlayers > 0,
-      readyPlayers,
-      connectedPlayers: players.length,
-      busy: players.some((player) => player.busy),
+      ready,
+      readyPlayers: ready ? 1 : 0,
+      connectedPlayers: connected ? 1 : 0,
+      busy: Boolean(connected && player.busy),
     };
   }
 
@@ -136,9 +200,10 @@ export class PlaybackGateway {
     const parsed = parseYouTubeUrl(content.contentUrl);
     if (!parsed) throw conflict('invalid_stored_youtube_url', '저장된 YouTube 링크를 재생할 수 없습니다.');
     await this.assertReady(homeId);
-    const player = [...(this.players.get(homeId) || [])]
-      .find((candidate) => candidate.ready && !candidate.busy && candidate.socket.readyState === OPEN);
-    if (!player) throw conflict('PLAYBACK_NOT_READY', '생활자 재생 화면을 먼저 준비해 주세요.');
+    const player = this.players.get(homeId);
+    if (!player || !this.isActive(player) || !player.ready || player.busy) {
+      throw conflict('PLAYBACK_NOT_READY', '생활자 재생 화면을 먼저 준비해 주세요.');
+    }
 
     const issuedAt = this.now();
     const command = {
@@ -168,23 +233,71 @@ export class PlaybackGateway {
     });
   }
 
+  async stopPlayback(homeId) {
+    const player = this.players.get(homeId);
+    if (!player || !this.isActive(player)) {
+      throw conflict('PLAYER_OFFLINE', '생활자 재생 화면이 연결되지 않았습니다.');
+    }
+    if (player.ready && !player.busy && !player.currentRequestId) {
+      return { stopped: false, ready: true };
+    }
+    if (!player.busy || !player.currentRequestId) {
+      throw conflict('PLAYBACK_NOT_READY', '생활자 재생 화면을 먼저 준비해 주세요.');
+    }
+    if (player.pendingStop) return player.pendingStop.promise;
+
+    if (player.pendingAck) {
+      this.clearTimer(player.pendingAck.timer);
+      player.pendingAck.reject(conflict('PLAYBACK_STOPPED', '재생 시작 전에 영상이 중지되었습니다.'));
+      player.pendingAck = null;
+    }
+    const requestId = player.currentRequestId;
+    let resolveStop;
+    let rejectStop;
+    const promise = new Promise((resolve, reject) => {
+      resolveStop = resolve;
+      rejectStop = reject;
+    });
+    const timer = this.setTimer(() => {
+      if (player.pendingStop?.requestId !== requestId) return;
+      player.pendingStop = null;
+      player.busy = false;
+      player.ready = false;
+      player.currentRequestId = null;
+      rejectStop(unavailable('PLAYBACK_STOP_TIMEOUT', '생활자 화면의 영상 중지를 확인하지 못했습니다.'));
+    }, this.ackTimeoutMs);
+    timer?.unref?.();
+    player.pendingStop = {
+      requestId, resolve: resolveStop, reject: rejectStop, timer, promise,
+    };
+    if (!send(player.socket, { type: 'STOP', request_id: requestId, home_id: homeId })) {
+      this.clearTimer(timer);
+      player.pendingStop = null;
+      player.busy = false;
+      player.ready = false;
+      player.currentRequestId = null;
+      throw unavailable('PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.');
+    }
+    return promise;
+  }
+
   heartbeat() {
-    for (const homes of this.players.values()) {
-      for (const player of homes) {
-        const now = this.now();
-        if (now - player.lastPongAt > 60_000) {
-          player.socket.terminate?.();
-          continue;
-        }
-        send(player.socket, { type: 'PING', at: new Date(now).toISOString() });
+    for (const player of this.players.values()) {
+      const now = this.now();
+      if (now - player.lastPongAt > 60_000) {
+        player.socket.terminate?.();
+        continue;
       }
+      send(player.socket, { type: 'PING', at: new Date(now).toISOString() });
     }
   }
 
   close() {
-    for (const homes of this.players.values()) {
-      for (const player of homes) player.socket.close(1001, 'server shutdown');
-    }
+    const players = [...this.players.values()];
     this.players.clear();
+    for (const player of players) {
+      this.retire(player);
+      player.socket.close(1001, 'server shutdown');
+    }
   }
 }

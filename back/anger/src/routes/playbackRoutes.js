@@ -5,7 +5,7 @@ import {
   PairingAttemptLimiter,
 } from '../services/playerSession.js';
 import { badRequest, tooManyRequests } from '../errors.js';
-import { PLAYER_CONTROL_URL } from '../constants/player.js';
+import { playbackStatusResponse } from './playbackStatusResponse.js';
 
 function secureRequest(request, mode) {
   if (mode === 'true') return true;
@@ -52,15 +52,19 @@ export function createPlaybackRouter({ config, playbackGateway }) {
     try {
       const homeId = validateHomeId(request.query.home_id);
       const status = playbackGateway.getStatus(homeId);
+      response.json(playbackStatusResponse(status));
+    } catch (error) { next(error); }
+  });
+
+  router.post('/stop', async (request, response, next) => {
+    try {
+      const homeId = validateHomeId(request.body?.home_id);
+      const result = await playbackGateway.stopPlayback(homeId);
       response.json({
-        status: status.ready ? 'READY' : status.busy ? 'BUSY'
-          : status.connectedPlayers === 0 ? 'OFFLINE' : 'NOT_READY',
-        available: true,
-        ready: status.ready,
-        ready_players: status.readyPlayers,
-        connected_players: status.connectedPlayers,
-        busy: status.busy,
-        control_url: PLAYER_CONTROL_URL,
+        home_id: homeId,
+        stopped: result.stopped,
+        status: 'READY',
+        ready: result.ready,
       });
     } catch (error) { next(error); }
   });

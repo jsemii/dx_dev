@@ -7,7 +7,8 @@ class FakeSocket extends EventEmitter {
   readyState = 1;
   sent = [];
   send(value) { this.sent.push(JSON.parse(value)); }
-  close() { this.readyState = 3; this.emit('close'); }
+  close(code, reason) { this.closeCode = code; this.closeReason = reason; this.readyState = 3; this.emit('close'); }
+  terminate() { this.close(1006, 'terminated'); }
   receive(message) { this.emit('message', JSON.stringify(message)); }
 }
 
@@ -91,4 +92,107 @@ test('ENDED 뒤 새 request_id로 같은 영상을 다시 0초 명령으로 보�
   assert.deepEqual(plays.map((message) => message.request_id), ids);
   assert.deepEqual(plays.map((message) => message.video_id), ['rFjRsWPGZxY', 'rFjRsWPGZxY']);
   assert.equal(gateway.getStatus('home_23').ready, true);
+});
+
+test('같은 생활자의 최신 REGISTER만 활성화하고 이전 close는 새 연결을 지우지 않는다', () => {
+  const gateway = new PlaybackGateway();
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  gateway.attach(first, 'home_23');
+  first.receive({ type: 'REGISTER', home_id: 'home_23' });
+  first.receive({ type: 'READY' });
+  gateway.attach(second, 'home_23');
+  second.receive({ type: 'REGISTER', home_id: 'home_23' });
+  second.receive({ type: 'READY' });
+
+  assert.equal(first.closeCode, 4001);
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+  });
+  first.emit('close');
+  assert.equal(gateway.getStatus('home_23').connectedPlayers, 1);
+  assert.equal(gateway.getStatus('home_23').readyPlayers, 1);
+});
+
+test('PLAY 명령과 ACK는 활성 소켓 및 동일 request_id에만 결합한다', async () => {
+  const gateway = new PlaybackGateway();
+  const stale = new FakeSocket();
+  const active = new FakeSocket();
+  gateway.attach(stale, 'home_23');
+  stale.receive({ type: 'REGISTER', home_id: 'home_23' });
+  stale.receive({ type: 'READY' });
+  gateway.attach(active, 'home_23');
+  active.receive({ type: 'REGISTER', home_id: 'home_23' });
+  active.receive({ type: 'READY' });
+  const requestId = '66666666-6666-4666-8666-666666666666';
+  const pending = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+
+  assert.equal(stale.sent.some((message) => message.type === 'PLAY'), false);
+  assert.equal(active.sent.some((message) => message.type === 'PLAY'), true);
+  stale.receive({ type: 'PLAYING', request_id: requestId });
+  assert.equal(gateway.getStatus('home_23').busy, true);
+  active.receive({ type: 'PLAYING', request_id: '77777777-7777-4777-8777-777777777777' });
+  assert.equal(gateway.getStatus('home_23').busy, true);
+  active.receive({ type: 'PLAYING', request_id: requestId });
+  assert.deepEqual(await pending, { requestId });
+});
+
+test('STOP은 STOPPED ACK 뒤 READY로 복귀하고 READY에서는 멱등 성공한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = '88888888-8888-4888-8888-888888888888';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+
+  const stopping = gateway.stopPlayback('home_23');
+  await new Promise(setImmediate);
+  assert.deepEqual(socket.sent.find((message) => message.type === 'STOP'), {
+    type: 'STOP', request_id: requestId, home_id: 'home_23',
+  });
+  socket.receive({ type: 'STOPPED', request_id: requestId });
+  assert.deepEqual(await stopping, { stopped: true, ready: true });
+  assert.deepEqual(gateway.getStatus('home_23'), {
+    ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+  });
+  assert.deepEqual(await gateway.stopPlayback('home_23'), { stopped: false, ready: true });
+});
+
+test('STOP timeout은 BUSY와 현재 요청을 정리한다', async () => {
+  const { gateway, socket } = readyGateway({ ackTimeoutMs: 5 });
+  const requestId = '99999999-9999-4999-8999-999999999999';
+  const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await playing;
+  await assert.rejects(gateway.stopPlayback('home_23'), (error) => error.code === 'PLAYBACK_STOP_TIMEOUT');
+  assert.equal(gateway.getStatus('home_23').busy, false);
+  assert.equal(gateway.getStatus('home_23').ready, false);
+});
+
+test('PLAY → STOP → READY 흐름을 새 request_id로 3회 반복한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const ids = [
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3',
+  ];
+  for (const requestId of ids) {
+    const playing = gateway.requestPlayback({ homeId: 'home_23', content, requestId });
+    await new Promise(setImmediate);
+    socket.receive({ type: 'PLAYING', request_id: requestId });
+    await playing;
+    const stopping = gateway.stopPlayback('home_23');
+    await new Promise(setImmediate);
+    socket.receive({ type: 'STOPPED', request_id: requestId });
+    await stopping;
+    assert.deepEqual(gateway.getStatus('home_23'), {
+      ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false,
+    });
+  }
+  assert.deepEqual(
+    socket.sent.filter((message) => message.type === 'PLAY').map((message) => message.request_id), ids,
+  );
+  assert.equal(socket.sent.filter((message) => message.type === 'STOP').length, 3);
 });
