@@ -441,13 +441,15 @@ export default function TvPlayerPage({ homeId }) {
         </section>
       )}
       {state === TV_PLAYER_STATE.DISCONNECTED && <p className="tv-player__disconnected">늘봄 서비스에 다시 연결하고 있습니다.</p>}
-      <aside className="tv-player__device-status" aria-live="polite">
-        <span>마이크: {microphoneLabel}</span>
-        <span>마이크 권한: {audioCoordinator.current?.microphoneReady ? '허용됨' : '준비 필요'}</span>
-        <span>서비스 연결: {debugInfo.socket === 'OPEN' ? '연결됨' : '연결 안 됨'}</span>
-        <span>재생 준비: {prepared.current ? '준비됨' : '준비 필요'}</span>
-        <span>감지 상태: {detectionState}</span>
-      </aside>
+      {debug && (
+        <aside className="tv-player__device-status" aria-live="polite">
+          <span>마이크: {microphoneLabel}</span>
+          <span>마이크 권한: {audioCoordinator.current?.microphoneReady ? '허용됨' : '준비 필요'}</span>
+          <span>서비스 연결: {debugInfo.socket === 'OPEN' ? '연결됨' : '연결 안 됨'}</span>
+          <span>재생 준비: {prepared.current ? '준비됨' : '준비 필요'}</span>
+          <span>감지 상태: {detectionState}</span>
+        </aside>
+      )}
       {debug && (
         <output className="tv-player__debug">
           state={state}<br />socket={debugInfo.socket}<br />ready={String(state === TV_PLAYER_STATE.READY)}<br />
