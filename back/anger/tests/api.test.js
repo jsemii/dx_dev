@@ -61,10 +61,31 @@ test('canonical과 호환 Player 상태 API는 동일한 Gateway 응답을 반�
     assert.deepEqual(canonical.body, {
       status: 'READY', available: true, ready: true, ready_players: 1,
       connected_players: 1, busy: false,
+      player_state: 'READY', microphone_ready: false,
+      detection_requested: false, detection_result: null,
       control_url: '/player',
     });
     assert.deepEqual(compatibility.body, canonical.body);
   });
+});
+
+test('원격 감지 API는 기존 Gateway에 START와 STOP을 위임한다', async () => {
+  const calls = [];
+  const app = testApp({
+    playbackClient: {
+      getStatus() { return { ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false }; },
+      async startDetection(homeId) { calls.push(`start:${homeId}`); return { state: 'DETECTING', microphoneReady: true }; },
+      async stopDetection(homeId) { calls.push(`stop:${homeId}`); return { state: 'READY', microphoneReady: true }; },
+    },
+  });
+  await withRequest(app, async (client) => {
+    const started = await client.post('/api/playback/detection/start').send({ home_id: 'home_23' });
+    const stopped = await client.post('/api/playback/detection/stop').send({ home_id: 'home_23' });
+    assert.equal(started.status, 200);
+    assert.equal(started.body.status, 'DETECTING');
+    assert.equal(stopped.status, 200);
+  });
+  assert.deepEqual(calls, ['start:home_23', 'stop:home_23']);
 });
 
 test('Player STOP API는 STOPPED 확인 뒤 READY 상태를 반환한다', async () => {

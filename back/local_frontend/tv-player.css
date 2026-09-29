@@ -15,4 +15,6 @@
 .tv-player__loading span { width: 16px; height: 16px; border: 2px solid #333; border-top-color: #ddd; border-radius: 50%; animation: tv-spin 800ms linear infinite; }
 .tv-player__disconnected { position: absolute; bottom: 24px; left: 0; right: 0; margin: 0; color: #888; text-align: center; font-size: 14px; }
 .tv-player__debug { position: absolute; right: 12px; bottom: 12px; padding: 7px 9px; background: rgba(30, 30, 30, .85); color: #8ee; font: 12px monospace; }
+.tv-player__device-status { position: absolute; left: 18px; bottom: 18px; display: grid; gap: 4px; padding: 10px 12px; border-radius: 8px; background: rgba(0, 0, 0, .72); color: #bdbdbd; font-size: 12px; pointer-events: none; }
+.tv-player--playing .tv-player__device-status { opacity: .2; }
 @keyframes tv-spin { to { transform: rotate(360deg); } }

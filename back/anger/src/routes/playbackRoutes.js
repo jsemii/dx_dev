@@ -51,7 +51,7 @@ export function createPlaybackRouter({ config, playbackGateway }) {
   router.get('/status', (request, response, next) => {
     try {
       const homeId = validateHomeId(request.query.home_id);
-      const status = playbackGateway.getStatus(homeId);
+      const status = playbackGateway.getDetailedStatus?.(homeId) || playbackGateway.getStatus(homeId);
       response.json(playbackStatusResponse(status));
     } catch (error) { next(error); }
   });
@@ -66,6 +66,22 @@ export function createPlaybackRouter({ config, playbackGateway }) {
         status: 'READY',
         ready: result.ready,
       });
+    } catch (error) { next(error); }
+  });
+
+  router.post('/detection/start', async (request, response, next) => {
+    try {
+      const homeId = validateHomeId(request.body?.home_id);
+      const result = await playbackGateway.startDetection(homeId);
+      response.json({ home_id: homeId, status: result.state, microphone_ready: result.microphoneReady });
+    } catch (error) { next(error); }
+  });
+
+  router.post('/detection/stop', async (request, response, next) => {
+    try {
+      const homeId = validateHomeId(request.body?.home_id);
+      const result = await playbackGateway.stopDetection(homeId);
+      response.json({ home_id: homeId, status: result.state, microphone_ready: result.microphoneReady });
     } catch (error) { next(error); }
   });
 

@@ -14,6 +14,7 @@ const BUSY_PLAYER_STATES = new Set([
   'CONNECTING', 'UNSTARTED', 'CUED', 'BUFFERING', 'PLAYING', 'PAUSED',
 ]);
 const READY_PLAYER_STATES = new Set(['READY', 'ENDED']);
+const ACTIVE_DETECTION_STATES = new Set(['DETECTING', 'RECORDING', 'ANALYZING']);
 
 function send(socket, payload) {
   if (socket.readyState !== OPEN) return false;
@@ -67,6 +68,11 @@ export class PlaybackGateway {
       currentRequestId: null,
       pendingAck: null,
       pendingStop: null,
+      pendingDetection: null,
+      detectionState: 'PREPARING',
+      detectionRequested: false,
+      detectionResult: null,
+      microphoneReady: false,
       connectedAt: this.now(),
       lastPongAt: this.now(),
       lastStateHeartbeatAt: null,
@@ -92,6 +98,11 @@ export class PlaybackGateway {
       player.pendingStop.reject(error);
       player.pendingStop = null;
     }
+    if (player.pendingDetection) {
+      this.clearTimer(player.pendingDetection.timer);
+      player.pendingDetection.reject(error);
+      player.pendingDetection = null;
+    }
   }
 
   retire(player, error = unavailable(
@@ -105,6 +116,9 @@ export class PlaybackGateway {
     player.currentRequestId = null;
     player.lastStateHeartbeatAt = null;
     player.playStartedAt = null;
+    player.detectionState = 'OFFLINE';
+    player.detectionRequested = false;
+    player.microphoneReady = false;
   }
 
   register(player, snapshot = {}) {
@@ -117,6 +131,7 @@ export class PlaybackGateway {
     send(player.socket, {
       type: 'REGISTERED', home_id: player.homeId, connection_id: player.connectionId,
     });
+    this.reconcileDetectionState(player, snapshot);
     if (this.isActive(player)) this.reconcilePlayerState(player, snapshot, 'REGISTER');
   }
 
@@ -201,6 +216,7 @@ export class PlaybackGateway {
   }
 
   reconcilePlayerState(player, snapshot, source) {
+    this.reconcileDetectionState(player, snapshot);
     const playerState = String(snapshot?.player_state || '').toUpperCase();
     const requestId = snapshot?.request_id || null;
     if (!playerState) return false;
@@ -241,6 +257,39 @@ export class PlaybackGateway {
     return false;
   }
 
+  reconcileDetectionState(player, snapshot) {
+    const validStates = new Set([
+      'OFFLINE', 'PREPARING', 'READY', 'DETECTING', 'RECORDING', 'ANALYZING',
+      'PLAYING', 'COOLDOWN', 'ERROR',
+    ]);
+    const detectionState = String(snapshot?.detection_state || '').toUpperCase();
+    const hasRequested = typeof snapshot?.detection_requested === 'boolean';
+    const requested = hasRequested ? snapshot.detection_requested : player.detectionRequested;
+    if (detectionState === 'READY' && player.pendingDetection?.type === 'START_DETECTION') {
+      return false;
+    }
+    if (detectionState === 'READY' && requested) {
+      if (ACTIVE_DETECTION_STATES.has(player.detectionState) && player.detectionRequested) return false;
+      player.detectionState = 'ERROR';
+      player.detectionRequested = false;
+    } else if (validStates.has(detectionState)) {
+      player.detectionState = detectionState;
+      if (ACTIVE_DETECTION_STATES.has(detectionState)) player.detectionRequested = true;
+      else if (['READY', 'ERROR', 'OFFLINE'].includes(detectionState)) player.detectionRequested = false;
+      else if (hasRequested) player.detectionRequested = requested;
+    } else if (hasRequested) {
+      player.detectionRequested = requested;
+    }
+    if (typeof snapshot?.microphone_ready === 'boolean') {
+      player.microphoneReady = snapshot.microphone_ready;
+    }
+    if (Object.hasOwn(snapshot || {}, 'detection_result')) {
+      player.detectionResult = ['DETECTED', 'NOT_DETECTED'].includes(snapshot.detection_result)
+        ? snapshot.detection_result : null;
+    }
+    return true;
+  }
+
   handleMessage(player, raw) {
     let message;
     try { message = JSON.parse(String(raw)); } catch { return; }
@@ -272,6 +321,7 @@ export class PlaybackGateway {
     }
     if (!player.registered || !this.isConnected(player)) return;
     if (message?.type === 'READY') {
+      this.reconcileDetectionState(player, message);
       if (!player.currentRequestId && !player.busy
           && (!player.ready || !this.isActive(player))) this.promoteReady(player);
       return;
@@ -281,6 +331,47 @@ export class PlaybackGateway {
       return;
     }
     if (!this.isActive(player)) return;
+    if (message?.type === 'DETECTION_STATE') {
+      this.reconcileDetectionState(player, message);
+      return;
+    }
+    if (['DETECTION_STARTED', 'DETECTION_STOPPED', 'DETECTION_FAILED'].includes(message?.type)) {
+      const pending = player.pendingDetection;
+      if (!pending || message.command_id !== pending.commandId
+          || (message.type !== pending.expectedType && message.type !== 'DETECTION_FAILED')) {
+        return;
+      }
+      this.clearTimer(pending.timer);
+      player.pendingDetection = null;
+      if (message.type === 'DETECTION_FAILED') {
+        player.detectionRequested = false;
+        player.detectionState = 'ERROR';
+        this.reconcileDetectionState(player, message);
+        pending.reject(conflict(
+          message.code || 'DETECTION_FAILED',
+          message.message || '생활자 화면에서 음성 감지를 시작하지 못했습니다.',
+        ));
+      } else if (message.type === 'DETECTION_STARTED'
+          && !ACTIVE_DETECTION_STATES.has(String(message.detection_state || '').toUpperCase())) {
+        player.detectionRequested = false;
+        player.detectionState = 'ERROR';
+        pending.reject(conflict(
+          'INVALID_DETECTION_STARTED_ACK', '생활자 화면에서 음성 감지가 실제로 시작되지 않았습니다.',
+        ));
+      } else if (message.type === 'DETECTION_STOPPED'
+          && (message.detection_requested !== false
+            || !['READY', 'PLAYING'].includes(String(message.detection_state || '').toUpperCase()))) {
+        player.detectionRequested = false;
+        player.detectionState = 'ERROR';
+        pending.reject(conflict(
+          'INVALID_DETECTION_STOPPED_ACK', '생활자 화면에서 음성 감지 중지를 확인하지 못했습니다.',
+        ));
+      } else {
+        this.reconcileDetectionState(player, message);
+        pending.resolve({ state: player.detectionState, microphoneReady: player.microphoneReady });
+      }
+      return;
+    }
     if (!UUID.test(String(message?.request_id || ''))
         || message.request_id !== player.currentRequestId) return;
     if (message.type === 'PLAYING') {
@@ -328,6 +419,19 @@ export class PlaybackGateway {
     };
   }
 
+  getDetailedStatus(homeId) {
+    const status = this.getStatus(homeId);
+    const player = this.players.get(homeId);
+    const connected = Boolean(player && this.isActive(player));
+    return {
+      ...status,
+      detectionState: connected ? (player.busy ? 'PLAYING' : player.detectionState) : 'OFFLINE',
+      detectionRequested: Boolean(connected && player.detectionRequested),
+      detectionResult: connected ? player.detectionResult : null,
+      microphoneReady: Boolean(connected && player.microphoneReady),
+    };
+  }
+
   async assertReady(homeId) {
     const status = this.getStatus(homeId);
     if (!status.ready) {
@@ -364,6 +468,7 @@ export class PlaybackGateway {
     player.currentRequestId = requestId;
     player.playStartedAt = issuedAt;
     player.lastStateHeartbeatAt = issuedAt;
+    player.detectionState = 'PLAYING';
     this.logEvent('PLAY', player, { requestId, elapsedMs: 0 });
     if (!send(player.socket, command)) {
       player.currentRequestId = null;
@@ -388,6 +493,77 @@ export class PlaybackGateway {
       timer?.unref?.();
       player.pendingAck = { resolve, reject, timer };
     });
+  }
+
+  async requestDetectionCommand(homeId, type) {
+    const player = this.players.get(homeId);
+    if (!player || !this.isActive(player)) {
+      throw conflict('PLAYER_OFFLINE', '생활자 재생 화면이 연결되지 않았습니다.');
+    }
+    if (!player.microphoneReady) {
+      throw conflict('PLAYER_MICROPHONE_NOT_READY', '생활자 재생 화면의 마이크를 먼저 준비해 주세요.');
+    }
+    if (type === 'START_DETECTION' && !player.ready) {
+      throw conflict('PLAYBACK_NOT_READY', '생활자 재생 화면을 먼저 준비해 주세요.');
+    }
+    if (type === 'START_DETECTION' && player.busy) {
+      throw conflict('PLAYER_BUSY', '생활자 화면에서 콘텐츠를 재생 중입니다.');
+    }
+    if (player.pendingDetection?.type === type) return player.pendingDetection.promise;
+    if (player.pendingDetection) {
+      this.clearTimer(player.pendingDetection.timer);
+      player.pendingDetection.reject(conflict(
+        'DETECTION_COMMAND_REPLACED', '새 음성 감지 명령으로 이전 명령을 교체했습니다.',
+      ));
+      player.pendingDetection = null;
+    }
+    if (type === 'START_DETECTION' && player.detectionRequested
+        && ['DETECTING', 'RECORDING', 'ANALYZING'].includes(player.detectionState)) {
+      return { state: player.detectionState, microphoneReady: true };
+    }
+    if (type === 'STOP_DETECTION' && !player.detectionRequested
+        && !['DETECTING', 'RECORDING', 'ANALYZING', 'COOLDOWN'].includes(player.detectionState)) {
+      return { state: player.detectionState, microphoneReady: true };
+    }
+    const commandId = randomUUID();
+    const expectedType = type === 'START_DETECTION' ? 'DETECTION_STARTED' : 'DETECTION_STOPPED';
+    let resolveCommand;
+    let rejectCommand;
+    const promise = new Promise((resolve, reject) => {
+      resolveCommand = resolve;
+      rejectCommand = reject;
+    });
+    const timer = this.setTimer(() => {
+      if (player.pendingDetection?.commandId !== commandId) return;
+      player.pendingDetection = null;
+      player.detectionRequested = false;
+      player.detectionState = 'ERROR';
+      rejectCommand(unavailable('DETECTION_ACK_TIMEOUT', '생활자 화면의 음성 감지 응답을 확인하지 못했습니다.'));
+    }, this.ackTimeoutMs);
+    timer?.unref?.();
+    player.pendingDetection = {
+      type, commandId, expectedType, resolve: resolveCommand, reject: rejectCommand, timer, promise,
+    };
+    if (type === 'START_DETECTION') {
+      player.detectionRequested = true;
+      player.detectionState = 'PREPARING';
+    }
+    if (!send(player.socket, { type, command_id: commandId, home_id: homeId })) {
+      this.clearTimer(timer);
+      player.pendingDetection = null;
+      player.detectionRequested = false;
+      player.detectionState = 'ERROR';
+      throw unavailable('PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.');
+    }
+    return promise;
+  }
+
+  startDetection(homeId) {
+    return this.requestDetectionCommand(homeId, 'START_DETECTION');
+  }
+
+  stopDetection(homeId) {
+    return this.requestDetectionCommand(homeId, 'STOP_DETECTION');
   }
 
   async stopPlayback(homeId) {

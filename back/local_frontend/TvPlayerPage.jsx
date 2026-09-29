@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getPlayerSession, pairPlayer } from './playerApi.mjs';
 import { SinglePlayerSocket } from './singlePlayerSocket.mjs';
+import { AngerMonitor } from './angerMonitor.mjs';
+import {
+  isActiveDetectionState, PlayerAudioCoordinator, REMOTE_DETECTION_STATE,
+} from './playerAudioCoordinator.mjs';
+import { analyzeAnger } from './safetyCareApi.mjs';
 import {
   decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
   playerHeartbeatSnapshot, TV_PLAYER_STATE,
@@ -60,9 +65,16 @@ export default function TvPlayerPage({ homeId }) {
   const [paired, setPaired] = useState(false);
   const [pairingCode, setPairingCode] = useState('');
   const [message, setMessage] = useState('');
+  const [microphoneLabel, setMicrophoneLabel] = useState('권한 확인 전');
+  const [detectionState, setDetectionState] = useState(REMOTE_DETECTION_STATE.OFFLINE);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [debugInfo, setDebugInfo] = useState({
     socket: 'CLOSED', requestId: '-', videoId: '-', error: '-', heartbeat: '-',
+  });
+  const [audioDebug, setAudioDebug] = useState({
+    audioContextState: 'unavailable', trackEnabled: false, trackMuted: false,
+    trackReadyState: 'unavailable', rms: 0, db: -Infinity, thresholdDb: -40,
+    aboveThresholdMs: 0, measurementRunning: false,
   });
   const debug = new URLSearchParams(window.location.search).get('debug') === '1';
   const mounted = useRef(true);
@@ -75,17 +87,54 @@ export default function TvPlayerPage({ homeId }) {
   const guard = useRef(new PlaybackRequestGuard());
   const wakeLock = useRef(null);
   const stateRef = useRef(state);
+  const monitor = useRef(null);
+  const audioCoordinator = useRef(null);
   stateRef.current = state;
+
+  if (!monitor.current) {
+    monitor.current = new AngerMonitor({
+      analyze: (audio, sessionId, signal) => analyzeAnger(
+        fetch, homeId, sessionId, audio, { signal },
+      ),
+      keepStream: true,
+      onDevice: ({ label }) => {
+        if (mounted.current) setMicrophoneLabel(label || '연결된 마이크');
+      },
+      onDiagnostics: (diagnostics) => {
+        if (mounted.current) setAudioDebug(diagnostics);
+      },
+      onState: (status) => audioCoordinator.current?.handleMonitorState(status),
+    });
+    audioCoordinator.current = new PlayerAudioCoordinator({
+      monitor: monitor.current,
+      onState: (status) => {
+        if (!mounted.current) return;
+        setDetectionState(status.state);
+        socketManager.current?.send({
+          type: 'DETECTION_STATE',
+          detection_state: status.state,
+          microphone_ready: status.microphoneReady,
+          detection_requested: status.requested,
+          detection_result: status.lastResult,
+        });
+        if (status.state === REMOTE_DETECTION_STATE.ERROR && status.message) {
+          setMessage(status.message);
+          setState(TV_PLAYER_STATE.ERROR);
+        }
+      },
+    });
+  }
 
   const send = useCallback((payload, target) => (
     socketManager.current?.send(payload, target) || false
   ), []);
 
   const announceReady = useCallback((target) => {
+    const detection = audioCoordinator.current?.snapshot() || {};
     send({
-      type: 'REGISTER', home_id: homeId, player_state: 'READY', request_id: null,
+      type: 'REGISTER', home_id: homeId, player_state: 'READY', request_id: null, ...detection,
     }, target);
-    send({ type: 'READY' }, target);
+    send({ type: 'READY', ...detection }, target);
     if (mounted.current) setState(TV_PLAYER_STATE.READY);
   }, [homeId, send]);
 
@@ -94,6 +143,7 @@ export default function TvPlayerPage({ homeId }) {
     uiState: stateRef.current,
     requestId: currentPlayback.current?.requestId || null,
     youtubeState: player.current?.getPlayerState?.(),
+    detection: audioCoordinator.current?.snapshot(),
   }), []);
 
   const finishLocalPlayback = useCallback((playback) => {
@@ -101,6 +151,7 @@ export default function TvPlayerPage({ homeId }) {
     currentPlayback.current = null;
     send({ type: 'ENDED', request_id: playback.requestId }, playback.socket);
     player.current?.stopVideo?.();
+    audioCoordinator.current?.afterPlayback();
     setState(TV_PLAYER_STATE.ENDED);
     window.setTimeout(() => {
       if (mounted.current && prepared.current) announceReady(playback.socket);
@@ -123,10 +174,16 @@ export default function TvPlayerPage({ homeId }) {
       send({ type: 'NOT_READY' }, failed.socket);
     }
     currentPlayback.current = null;
+    audioCoordinator.current?.afterPlayback();
     setDebugInfo((current) => ({ ...current, error: code }));
     setMessage('콘텐츠를 재생할 수 없습니다.');
     setState(TV_PLAYER_STATE.ERROR);
-  }, [send]);
+    window.setTimeout(() => {
+      if (!mounted.current || !prepared.current) return;
+      setMessage('');
+      announceReady(failed?.socket);
+    }, 1_600);
+  }, [announceReady, send]);
 
   const handleSocketMessage = useCallback((event, sourceSocket, generation) => {
     let command;
@@ -138,10 +195,45 @@ export default function TvPlayerPage({ homeId }) {
         finishLocalPlayback(currentPlayback.current);
         send({
           type: 'PONG', at: command.at, player_state: 'READY', request_id: null,
+          ...audioCoordinator.current.snapshot(),
         }, sourceSocket);
       } else {
         send({ type: 'PONG', at: command.at, ...snapshot }, sourceSocket);
       }
+      return;
+    }
+    if (command.type === 'START_DETECTION' || command.type === 'STOP_DETECTION') {
+      if (command.home_id !== homeId || typeof command.command_id !== 'string') return;
+      const action = command.type === 'START_DETECTION'
+        ? audioCoordinator.current.start()
+        : Promise.resolve(audioCoordinator.current.stop());
+      Promise.resolve(action).then(() => {
+        const snapshot = audioCoordinator.current.snapshot();
+        if (command.type === 'START_DETECTION'
+            && !isActiveDetectionState(snapshot.detection_state)) {
+          throw Object.assign(new Error('음성 감지가 실제로 시작되지 않았습니다.'), {
+            code: 'DETECTION_NOT_STARTED',
+          });
+        }
+        if (command.type === 'STOP_DETECTION'
+            && (snapshot.detection_requested || snapshot.detection_state !== 'READY')) {
+          throw Object.assign(new Error('음성 감지 중지를 확인하지 못했습니다.'), {
+            code: 'DETECTION_NOT_STOPPED',
+          });
+        }
+        send({
+          type: command.type === 'START_DETECTION' ? 'DETECTION_STARTED' : 'DETECTION_STOPPED',
+          command_id: command.command_id,
+          ...snapshot,
+        }, sourceSocket);
+      }).catch((error) => {
+        const snapshot = audioCoordinator.current.reportStartFailure(
+          error.message || '음성 감지 명령에 실패했습니다.',
+        );
+        send({ type: 'DETECTION_FAILED', command_id: command.command_id,
+          code: error.code || 'MICROPHONE_UNAVAILABLE', message: error.message,
+          ...snapshot }, sourceSocket);
+      });
       return;
     }
     if (command.type === 'STOP') {
@@ -158,6 +250,7 @@ export default function TvPlayerPage({ homeId }) {
       }
       currentPlayback.current = null;
       player.current?.stopVideo?.();
+      audioCoordinator.current?.afterPlayback();
       send({ type: 'STOPPED', request_id: command.request_id }, sourceSocket);
       setState(TV_PLAYER_STATE.ENDED);
       announceReady(sourceSocket);
@@ -175,6 +268,7 @@ export default function TvPlayerPage({ homeId }) {
       return;
     }
     const playback = { requestId: command.request_id, socket: sourceSocket, generation };
+    audioCoordinator.current?.beforePlayback();
     currentPlayback.current = playback;
     setDebugInfo((current) => ({
       ...current, requestId: command.request_id, videoId: command.video_id, error: '-',
@@ -199,6 +293,7 @@ export default function TvPlayerPage({ homeId }) {
         setDebugInfo((current) => ({ ...current, socket: 'OPEN' }));
         if (!prepared.current || !player.current) return;
         const playback = currentPlayback.current;
+        audioCoordinator.current?.recoverConnection({ playbackActive: Boolean(playback) });
         if (!playback) {
           announceReady(webSocket);
           return;
@@ -228,6 +323,7 @@ export default function TvPlayerPage({ homeId }) {
             player.current?.stopVideo?.();
           }
           prepared.current = false;
+          audioCoordinator.current?.dispose();
           setMessage('다른 생활자 재생 화면이 연결되었습니다.');
           setState(TV_PLAYER_STATE.ERROR);
           return;
@@ -255,13 +351,16 @@ export default function TvPlayerPage({ homeId }) {
     setMessage('');
     void document.documentElement.requestFullscreen?.().catch(() => {});
     void requestWakeLock();
+    const microphonePromise = audioCoordinator.current.prepare();
     try {
       if (!paired) {
         if (!pairingCode.trim()) throw new Error('연결 코드를 입력해 주세요.');
         await pairPlayer(fetch, homeId, pairingCode.trim());
         setPaired(true);
       }
-      const [YT, webSocket] = await Promise.all([loadYouTubeApi(), connectSocket()]);
+      const [YT, webSocket] = await Promise.all([
+        loadYouTubeApi(), connectSocket(), microphonePromise,
+      ]);
       if (!player.current) {
         player.current = await createYouTubePlayer(YT, 'nulbom-tv-player', {
           onStateChange: onYouTubeState,
@@ -273,7 +372,8 @@ export default function TvPlayerPage({ homeId }) {
       announceReady(webSocket);
     } catch (error) {
       prepared.current = false;
-      setMessage(error.message || '재생 화면을 준비할 수 없습니다.');
+      audioCoordinator.current?.dispose();
+      setMessage(error.userMessage || error.message || '재생 화면을 준비할 수 없습니다.');
       setState(paired ? TV_PLAYER_STATE.ERROR : TV_PLAYER_STATE.SETUP);
     }
   }, [announceReady, connectSocket, failPlayback, homeId, onYouTubeState, paired, pairingCode, requestWakeLock]);
@@ -290,6 +390,7 @@ export default function TvPlayerPage({ homeId }) {
       wakeLock.current?.release?.();
       player.current?.destroy?.();
       player.current = null;
+      audioCoordinator.current?.dispose();
     };
   }, [homeId]);
 
@@ -340,11 +441,28 @@ export default function TvPlayerPage({ homeId }) {
         </section>
       )}
       {state === TV_PLAYER_STATE.DISCONNECTED && <p className="tv-player__disconnected">늘봄 서비스에 다시 연결하고 있습니다.</p>}
+      <aside className="tv-player__device-status" aria-live="polite">
+        <span>마이크: {microphoneLabel}</span>
+        <span>마이크 권한: {audioCoordinator.current?.microphoneReady ? '허용됨' : '준비 필요'}</span>
+        <span>서비스 연결: {debugInfo.socket === 'OPEN' ? '연결됨' : '연결 안 됨'}</span>
+        <span>재생 준비: {prepared.current ? '준비됨' : '준비 필요'}</span>
+        <span>감지 상태: {detectionState}</span>
+      </aside>
       {debug && (
         <output className="tv-player__debug">
           state={state}<br />socket={debugInfo.socket}<br />ready={String(state === TV_PLAYER_STATE.READY)}<br />
           request={debugInfo.requestId}<br />video={debugInfo.videoId}<br />error={debugInfo.error}<br />
           heartbeat={debugInfo.heartbeat}<br />home={homeId}
+          <br />detection={detectionState}<br />microphone={microphoneLabel}
+          <br />audio_context={audioDebug.audioContextState}
+          <br />track_enabled={String(audioDebug.trackEnabled)}
+          <br />track_muted={String(audioDebug.trackMuted)}
+          <br />track_ready_state={audioDebug.trackReadyState}
+          <br />rms={Number(audioDebug.rms || 0).toFixed(5)}
+          <br />db={Number.isFinite(audioDebug.db) ? audioDebug.db.toFixed(1) : '-Infinity'}
+          <br />threshold_db={audioDebug.thresholdDb}
+          <br />above_threshold_ms={Math.round(audioDebug.aboveThresholdMs || 0)}
+          <br />measurement_running={String(audioDebug.measurementRunning)}
         </output>
       )}
     </main>

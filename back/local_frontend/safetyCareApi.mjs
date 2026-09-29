@@ -91,11 +91,39 @@ export async function getPlaybackStatus(fetcher, homeId, options = {}) {
       || !Number.isInteger(body?.connected_players)
       || body.connected_players < 0
       || typeof body?.busy !== 'boolean'
+      || !['OFFLINE', 'PREPARING', 'READY', 'DETECTING', 'RECORDING', 'ANALYZING',
+        'PLAYING', 'COOLDOWN', 'ERROR'].includes(body?.player_state)
+      || typeof body?.microphone_ready !== 'boolean'
+      || typeof body?.detection_requested !== 'boolean'
       || typeof body?.control_url !== 'string'
       || !body.control_url.trim()) {
     throw new SafetyCareApiError('YouTube 재생 상태 응답 형식이 올바르지 않습니다.');
   }
   return body;
+}
+
+async function remoteDetectionCommand(fetcher, homeId, action, options = {}) {
+  const response = await fetcher(`/api/playback/detection/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ home_id: homeId }),
+    signal: options.signal,
+  });
+  if (!response.ok) throw await responseError(response, '생활자 화면의 음성 감지 명령에 실패했습니다.');
+  const body = await response.json();
+  if (body?.home_id !== homeId || typeof body?.status !== 'string'
+      || typeof body?.microphone_ready !== 'boolean') {
+    throw new SafetyCareApiError('원격 음성 감지 응답 형식이 올바르지 않습니다.');
+  }
+  return body;
+}
+
+export function startRemoteDetection(fetcher, homeId, options = {}) {
+  return remoteDetectionCommand(fetcher, homeId, 'start', options);
+}
+
+export function stopRemoteDetection(fetcher, homeId, options = {}) {
+  return remoteDetectionCommand(fetcher, homeId, 'stop', options);
 }
 
 export async function stopPlayback(fetcher, homeId, options = {}) {

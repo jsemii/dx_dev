@@ -415,3 +415,133 @@ test('구조화 로그는 상태 전환 식별자와 경과 시간만 기록한�
   const serialized = JSON.stringify(logs);
   assert.doesNotMatch(serialized, /youtube\.com|OPENAI|DATABASE_URL|transcript|pairing/i);
 });
+
+test('원격 START/STOP 감지는 활성 Player의 동일 소켓과 command_id에 결합한다', async () => {
+  const { gateway, socket } = readyGateway();
+  socket.receive({
+    type: 'PONG', player_state: 'READY', request_id: null,
+    detection_state: 'READY', microphone_ready: true, detection_requested: false,
+  });
+  const starting = gateway.startDetection('home_23');
+  await new Promise(setImmediate);
+  const start = socket.sent.find((message) => message.type === 'START_DETECTION');
+  assert.equal(start.home_id, 'home_23');
+  socket.receive({
+    type: 'DETECTION_STARTED', command_id: start.command_id,
+    detection_state: 'DETECTING', microphone_ready: true, detection_requested: true,
+  });
+  assert.equal((await starting).state, 'DETECTING');
+  assert.equal(gateway.getDetailedStatus('home_23').detectionRequested, true);
+
+  const stopping = gateway.stopDetection('home_23');
+  await new Promise(setImmediate);
+  const stop = socket.sent.find((message) => message.type === 'STOP_DETECTION');
+  socket.receive({
+    type: 'DETECTION_STOPPED', command_id: stop.command_id,
+    detection_state: 'READY', microphone_ready: true, detection_requested: false,
+  });
+  assert.equal((await stopping).state, 'READY');
+  assert.equal(gateway.getDetailedStatus('home_23').detectionState, 'READY');
+  assert.equal(gateway.getDetailedStatus('home_23').detectionRequested, false);
+});
+
+test('교체된 Player의 지연된 감지 ACK는 현재 Player 상태를 오염시키지 않는다', async () => {
+  const gateway = new PlaybackGateway({ ackTimeoutMs: 20 });
+  const oldSocket = new FakeSocket();
+  const newSocket = new FakeSocket();
+  gateway.attach(oldSocket, 'home_23');
+  oldSocket.receive({ type: 'REGISTER', home_id: 'home_23', microphone_ready: true });
+  oldSocket.receive({ type: 'READY', microphone_ready: true, detection_state: 'READY' });
+  gateway.attach(newSocket, 'home_23');
+  newSocket.receive({ type: 'REGISTER', home_id: 'home_23', microphone_ready: true });
+  newSocket.receive({ type: 'READY', microphone_ready: true, detection_state: 'READY' });
+  assert.equal(oldSocket.closeCode, 4001);
+
+  const starting = gateway.startDetection('home_23');
+  await new Promise(setImmediate);
+  const start = newSocket.sent.find((message) => message.type === 'START_DETECTION');
+  oldSocket.receive({
+    type: 'DETECTION_STARTED', command_id: start.command_id,
+    detection_state: 'DETECTING', microphone_ready: true, detection_requested: true,
+  });
+  assert.equal(gateway.getDetailedStatus('home_23').detectionState, 'PREPARING');
+  assert.equal(gateway.getDetailedStatus('home_23').detectionRequested, true);
+  newSocket.receive({
+    type: 'DETECTION_STARTED', command_id: start.command_id,
+    detection_state: 'DETECTING', microphone_ready: true, detection_requested: true,
+  });
+  await starting;
+  assert.equal(gateway.getStatus('home_23').connectedPlayers, 1);
+  assert.equal(gateway.getDetailedStatus('home_23').detectionRequested, true);
+});
+
+test('DETECTION_STARTED ACK가 READY이면 실패하고 READY+requested를 남기지 않는다', async () => {
+  const { gateway, socket } = readyGateway();
+  socket.receive({
+    type: 'PONG', player_state: 'READY', request_id: null,
+    detection_state: 'READY', microphone_ready: true, detection_requested: false,
+  });
+  const starting = gateway.startDetection('home_23');
+  await new Promise(setImmediate);
+  const start = socket.sent.find((message) => message.type === 'START_DETECTION');
+  socket.receive({
+    type: 'PONG', player_state: 'READY', request_id: null,
+    detection_state: 'READY', microphone_ready: true, detection_requested: false,
+  });
+  assert.equal(gateway.getDetailedStatus('home_23').detectionState, 'PREPARING');
+  assert.equal(gateway.getDetailedStatus('home_23').detectionRequested, true);
+  socket.receive({
+    type: 'DETECTION_STARTED', command_id: start.command_id,
+    detection_state: 'READY', microphone_ready: true, detection_requested: true,
+  });
+  await assert.rejects(starting, (error) => error.code === 'INVALID_DETECTION_STARTED_ACK');
+  const status = gateway.getDetailedStatus('home_23');
+  assert.equal(status.detectionState, 'ERROR');
+  assert.equal(status.detectionRequested, false);
+});
+
+test('감지 시작 뒤 stale READY heartbeat가 DETECTING을 덮어쓰지 않는다', async () => {
+  const { gateway, socket } = readyGateway();
+  socket.receive({
+    type: 'PONG', player_state: 'READY', request_id: null,
+    detection_state: 'READY', microphone_ready: true, detection_requested: false,
+  });
+  const starting = gateway.startDetection('home_23');
+  await new Promise(setImmediate);
+  const start = socket.sent.find((message) => message.type === 'START_DETECTION');
+  socket.receive({
+    type: 'DETECTION_STARTED', command_id: start.command_id,
+    detection_state: 'DETECTING', microphone_ready: true, detection_requested: true,
+  });
+  await starting;
+  socket.receive({
+    type: 'PONG', player_state: 'READY', request_id: null,
+    detection_state: 'READY', microphone_ready: true, detection_requested: true,
+  });
+  const status = gateway.getDetailedStatus('home_23');
+  assert.equal(status.detectionState, 'DETECTING');
+  assert.equal(status.detectionRequested, true);
+});
+
+test('Player 교체 후 새 활성 연결에서 START가 성공한다', async () => {
+  const gateway = new PlaybackGateway();
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  gateway.attach(first, 'home_23');
+  first.receive({ type: 'REGISTER', home_id: 'home_23', microphone_ready: true });
+  first.receive({ type: 'READY', detection_state: 'READY', microphone_ready: true,
+    detection_requested: false });
+  gateway.attach(second, 'home_23');
+  second.receive({ type: 'REGISTER', home_id: 'home_23', microphone_ready: true });
+  second.receive({ type: 'READY', detection_state: 'READY', microphone_ready: true,
+    detection_requested: false });
+  assert.equal(first.closeCode, 4001);
+  const starting = gateway.startDetection('home_23');
+  await new Promise(setImmediate);
+  const command = second.sent.find((message) => message.type === 'START_DETECTION');
+  assert.equal(first.sent.some((message) => message.type === 'START_DETECTION'), false);
+  second.receive({ type: 'DETECTION_STARTED', command_id: command.command_id,
+    detection_state: 'DETECTING', microphone_ready: true, detection_requested: true });
+  assert.equal((await starting).state, 'DETECTING');
+  assert.equal(gateway.getStatus('home_23').connectedPlayers, 1);
+});

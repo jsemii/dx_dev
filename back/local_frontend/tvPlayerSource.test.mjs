@@ -64,7 +64,8 @@ test('Player는 같은 IFrame에서 0초 재생하고 외부 창 fallback을 만
 test('준비 클릭 전 READY를 전송하지 않고 준비 완료 후에만 등록한다', async () => {
   const source = await readFile(componentUrl, 'utf8');
   const prepare = source.match(/const prepare = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[/)?.[0] || '';
-  assert.match(prepare, /loadYouTubeApi\(\), connectSocket\(\)/);
+  assert.match(prepare, /audioCoordinator\.current\.prepare\(\)/);
+  assert.match(prepare, /loadYouTubeApi\(\), connectSocket\(\), microphonePromise/);
   assert.match(prepare, /createYouTubePlayer/);
   assert.match(prepare, /prepared\.current = true/);
   assert.match(prepare, /announceReady\(webSocket\)/);
@@ -86,6 +87,32 @@ test('Player는 단일 소켓을 사용하고 PLAY를 받은 소켓으로 ACK하
   assert.match(source, /player\.current\?\.stopVideo/);
   assert.match(source, /type: 'STOPPED'/);
   assert.match(source, /socketManager\.current\?\.dispose\(\)/);
+});
+
+test('Player 준비 클릭에서만 마이크를 준비하고 원격 START와 STOP을 같은 소켓에서 처리한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  assert.match(source, /const microphonePromise = audioCoordinator\.current\.prepare\(\)/);
+  assert.match(source, /command\.type === 'START_DETECTION'/);
+  assert.match(source, /command\.type === 'STOP_DETECTION'/);
+  assert.match(source, /'DETECTION_STARTED' : 'DETECTION_STOPPED'/);
+  assert.match(source, /!isActiveDetectionState\(snapshot\.detection_state\)/);
+  assert.match(source, /type: 'DETECTION_FAILED'/);
+  assert.match(source, /reportStartFailure/);
+  assert.match(source, /audioCoordinator\.current\?\.beforePlayback\(\)/);
+  assert.match(source, /audioCoordinator\.current\?\.afterPlayback\(\)/);
+  assert.doesNotMatch(source, /NM-CSP01/);
+});
+
+test('debug 화면은 실제 AudioContext, track, 음량 측정 상태를 표시한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  for (const field of [
+    'audio_context', 'track_enabled', 'track_muted', 'track_ready_state',
+    'rms', 'threshold_db', 'above_threshold_ms', 'measurement_running',
+  ]) {
+    assert.match(source, new RegExp(`${field}=`));
+  }
+  assert.match(source, /onDiagnostics: \(diagnostics\)/);
+  assert.match(source, /setAudioDebug\(diagnostics\)/);
 });
 
 test('4001로 교체된 Player는 자동 재연결하지 않는다', async () => {
