@@ -319,7 +319,7 @@ function VoiceDetail({ voice, sharedPhrases, phraseMessage, onBack, onUpdated, o
   };
 
   const remove = async () => {
-    if (busy || !window.confirm('이 목소리를 ElevenLabs와 WiFi Care에서 영구 삭제할까요?')) return;
+    if (busy || !window.confirm('이 목소리를 영구 삭제할까요?')) return;
     setBusy(true);
     setError('');
     stopAudio();
