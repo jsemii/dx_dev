@@ -7,6 +7,8 @@ test('local report bridge forwards the share action to the team screen', () => {
   const source = readFileSync('./LocalDailyReport.jsx', 'utf8');
   assert.match(source, /function LocalDailyReport\(\{ onShare \}\)/);
   assert.match(source, /onShare=\{onShare\}/);
+  assert.match(source, /canGoPrevious=\{canGoPrevious\}/);
+  assert.match(source, /canGoNext=\{canGoNext\}/);
 });
 
 test('maps the LLM JSON to the existing daily report component', () => {

@@ -1,6 +1,6 @@
 """Offline tests for the read-only care dashboard API."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
@@ -328,11 +328,11 @@ class RepositoryTests(unittest.TestCase):
 
 
 class HttpTests(unittest.TestCase):
-    def request(self, repository, path):
+    def request(self, repository, path, *, now=None):
         handler = create_handler(
             repository,
             {"http://127.0.0.1:5175"},
-            now_provider=lambda: datetime(2026, 9, 26, 10, tzinfo=SEOUL),
+            now_provider=lambda: now or datetime(2026, 9, 26, 10, tzinfo=SEOUL),
         )
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -341,21 +341,40 @@ class HttpTests(unittest.TestCase):
             connection = HTTPConnection("127.0.0.1", server.server_port, timeout=3)
             connection.request("GET", path)
             response = connection.getresponse()
-            return response.status, json.loads(response.read())
+            return response.status, json.loads(response.read()), dict(response.getheaders())
         finally:
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
+
+    def test_server_date_uses_seoul_calendar_without_database_access(self):
+        class Repository:
+            def fetch_daily_data(self, home_id, day):
+                raise AssertionError("date endpoint must not query the database")
+
+        status, body, headers = self.request(
+            Repository(),
+            "/api/server-date",
+            now=datetime(2026, 9, 28, 15, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"today": "2026-09-29", "timezone": "Asia/Seoul"})
+        self.assertEqual(headers["Cache-Control"], "no-store")
+
+    def test_server_date_rejects_query_parameters(self):
+        status, body, _ = self.request(object(), "/api/server-date?date=2026-09-29")
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_request")
 
     def test_dashboard_http_success_and_future_rejection(self):
         class Repository:
             def fetch_daily_data(self, home_id, day):
                 return base_snapshot()
 
-        status, body = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-23")
+        status, body, _ = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-23")
         self.assertEqual(status, 200)
         self.assertEqual(body["resident_thinq_id"], "home_23")
-        status, body = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-27")
+        status, body, _ = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-27")
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "invalid_request")
 
@@ -364,7 +383,7 @@ class HttpTests(unittest.TestCase):
             def fetch_daily_data(self, home_id, day):
                 raise DatabaseUnavailable("secret database detail")
 
-        status, body = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-23")
+        status, body, _ = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-23")
         self.assertEqual(status, 503)
         self.assertEqual(body["error"]["code"], "database_unavailable")
         self.assertNotIn("secret", json.dumps(body))
