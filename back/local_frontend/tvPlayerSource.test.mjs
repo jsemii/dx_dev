@@ -105,6 +105,16 @@ test('Player 준비 클릭에서만 마이크를 준비하고 원격 START와 ST
 
 test('debug 화면은 실제 AudioContext, track, 음량 측정 상태를 표시한다', async () => {
   const source = await readFile(componentUrl, 'utf8');
+  assert.match(
+    source,
+    /\{debug && \(\s*<aside className="tv-player__device-status" aria-live="polite">[\s\S]*?<\/aside>\s*\)\}/,
+  );
+  assert.match(
+    source,
+    /\{debug && \(\s*<output className="tv-player__debug">[\s\S]*?<\/output>\s*\)\}/,
+  );
+  assert.equal((source.match(/className="tv-player__device-status"/g) || []).length, 1);
+  assert.equal((source.match(/className="tv-player__debug"/g) || []).length, 1);
   for (const field of [
     'audio_context', 'track_enabled', 'track_muted', 'track_ready_state',
     'rms', 'threshold_db', 'above_threshold_ms', 'measurement_running',
