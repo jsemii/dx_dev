@@ -123,6 +123,22 @@ class VoiceProfileRepositoryTests {
     }
 
     @Test
+    void latestVerifiedVoiceSkipsNewerPendingVerificationEntries() throws SQLException {
+        query();
+        when(result.next()).thenReturn(true);
+        voiceRow("verified-provider-id", "검증 완료 목소리", false);
+
+        assertThat(repository.findLatestVerified("home_23"))
+                .contains(new RegisteredVoice(
+                        "verified-provider-id", "검증 완료 목소리", false, CREATED_AT));
+        verify(connection).prepareStatement(contains(
+                "COALESCE((entry->>'requires_verification')::boolean, true) = false"));
+        verify(connection).prepareStatement(contains(
+                "ORDER BY (entry->>'created_at')::timestamptz DESC"));
+        verify(statement).setString(1, "home_23");
+    }
+
+    @Test
     void sharedPhraseListIsScopedToTheResidentAndKeepsJsonArrayOrder() throws SQLException {
         query();
         when(result.next()).thenReturn(true, false);

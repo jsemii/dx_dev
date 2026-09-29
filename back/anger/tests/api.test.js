@@ -14,6 +14,8 @@ const config = {
   playerPairingMaxAttempts: 5,
   playerPairingWindowMs: 300_000,
   playerCookieSecure: 'false',
+  alarmAudioMaxBytes: 1_024,
+  playbackInternalToken: '12345678901234567890123456789012',
 };
 const sessionId = '11111111-1111-4111-8111-111111111111';
 
@@ -86,6 +88,73 @@ test('원격 감지 API는 기존 Gateway에 START와 STOP을 위임한다', asy
     assert.equal(stopped.status, 200);
   });
   assert.deepEqual(calls, ['start:home_23', 'stop:home_23']);
+});
+
+test('내부 알림 음성 API는 공유 토큰과 안전한 필드만 Gateway에 전달한다', async () => {
+  const calls = [];
+  const app = testApp({
+    playbackClient: {
+      getStatus() { return { ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false }; },
+      async requestAudioPlayback(input) {
+        calls.push(input);
+        return {
+          requestId: input.requestId,
+          status: 'COMPLETED',
+          startedAt: '2026-09-30T00:00:00.000Z',
+          endedAt: '2026-09-30T00:00:01.000Z',
+          failureCode: null,
+        };
+      },
+    },
+  });
+  const body = {
+    home_id: 'home_23',
+    alarm_id: '11111111-1111-4111-8111-111111111111',
+    request_id: '22222222-2222-4222-8222-222222222222',
+    audio: Buffer.from('mock mp3').toString('base64'),
+    mime_type: 'audio/mpeg',
+    text: '클라이언트 문구',
+    voice_id: 'client-voice',
+    url: 'https://example.com/untrusted.mp3',
+  };
+  const response = await withRequest(app, (client) => client.post('/internal/playback/audio')
+    .set('X-Internal-Token', config.playbackInternalToken).send(body));
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(Object.keys(calls[0]).sort(), [
+    'alarmId', 'audio', 'homeId', 'maxBytes', 'mimeType', 'requestId',
+  ]);
+  assert.equal(calls[0].audio.toString(), 'mock mp3');
+});
+
+test('내부 알림 음성 API는 브라우저·잘못된 토큰·잘못된 음성을 거부한다', async () => {
+  let calls = 0;
+  const app = testApp({
+    playbackClient: {
+      getStatus() { return { ready: true, readyPlayers: 1, connectedPlayers: 1, busy: false }; },
+      async requestAudioPlayback() { calls += 1; },
+    },
+  });
+  const body = {
+    home_id: 'home_23',
+    alarm_id: '11111111-1111-4111-8111-111111111111',
+    request_id: '22222222-2222-4222-8222-222222222222',
+    audio: Buffer.from('mock mp3').toString('base64'),
+    mime_type: 'audio/mpeg',
+  };
+  await withRequest(app, async (client) => {
+    assert.equal((await client.post('/internal/playback/audio').send(body)).status, 401);
+    assert.equal((await client.post('/internal/playback/audio')
+      .set('X-Internal-Token', config.playbackInternalToken)
+      .set('Origin', config.allowedOrigins[0]).send(body)).status, 401);
+    assert.equal((await client.post('/internal/playback/audio')
+      .set('X-Internal-Token', config.playbackInternalToken)
+      .send({ ...body, mime_type: 'text/html' })).status, 400);
+    assert.equal((await client.post('/internal/playback/audio')
+      .set('X-Internal-Token', config.playbackInternalToken)
+      .send({ ...body, audio: 'not-base64' })).status, 400);
+  });
+  assert.equal(calls, 0);
 });
 
 test('Player STOP API는 STOPPED 확인 뒤 READY 상태를 반환한다', async () => {

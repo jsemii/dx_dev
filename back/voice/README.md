@@ -75,3 +75,35 @@ cd /Users/jangsemi/dx_dev/wifi-care-project/back/voice
 ```
 
 테스트는 외부 음성 서비스로 실제 요청을 보내거나 비용을 발생시키지 않습니다.
+
+## Player 알림 음성 실행
+
+스케줄러는 `Asia/Seoul` 기준으로 활성화된 식사·복약 알림을 짧은 유예시간
+안에서 조회하고, 생활자가 소유한 목소리 중 인증이 끝난 가장 최근 목소리로
+고정 문구(`MEAL`: `밥 먹어요`, `MEDICATION`: `약 먹어요`)를 생성합니다.
+브라우저 요청에서는 문구나 공급자 voice ID를 받지 않습니다. 생성된 MP3는
+공유 내부 토큰으로 인증한 Anger API를 거쳐 현재 활성 `/player` 소켓으로만
+전달됩니다.
+
+처음 배포할 때 `db/create_alarm_delivery.sql`을 한 번 적용해야 합니다. 이
+migration은 `(alarm_id, scheduled_for)` 중복 실행 방지 이력과 실제 `PLAYING`
+확인 후 생성되는 `care_event`의 연결 키를 추가합니다.
+
+필요한 환경변수 이름은 다음과 같습니다. Voice와 Anger에는 동일한
+`PLAYBACK_INTERNAL_TOKEN`(32자 이상)을 설정하고, Anger replica는 메모리 기반
+활성 Player 상태를 공유하지 않으므로 1개로 유지합니다.
+
+```text
+ALARM_DELIVERY_ENABLED=false
+ALARM_SCAN_INTERVAL_MS=5000
+ALARM_DELIVERY_GRACE_MS=120000
+ALARM_AUDIO_MAX_BYTES=1048576
+ALARM_PLAYBACK_TIMEOUT_MS=150000
+ANGER_INTERNAL_BASE_URL=http://nulbom-anger:3001
+PLAYBACK_INTERNAL_TOKEN=
+PLAYBACK_AUDIO_COMPLETION_TIMEOUT_MS=120000
+```
+
+기본값에서는 스케줄러가 비활성화됩니다. migration과 내부 연결, 토큰을 먼저
+확인한 뒤 `ALARM_DELIVERY_ENABLED=true`로 전환해야 합니다. 토큰이나 공급자
+응답 본문, voice ID는 로그에 기록하지 않습니다.
