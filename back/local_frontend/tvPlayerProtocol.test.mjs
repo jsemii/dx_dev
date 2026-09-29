@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
-  TV_PLAYER_STATE, validatePlayCommand,
+  playerHeartbeatSnapshot, TV_PLAYER_STATE, validatePlayCommand,
 } from './tvPlayerProtocol.mjs';
 import { SAFETY_CARE_HOME_ID } from './safetyCareApi.mjs';
 import { resolvePlayerRoute } from './playerRoute.mjs';
@@ -14,6 +14,10 @@ const command = {
   video_id: 'rFjRsWPGZxY',
   issued_at: '2026-09-27T00:00:00.000Z',
   expires_at: '2026-09-27T00:00:15.000Z',
+};
+const defaultDetection = {
+  detection_state: 'READY', microphone_ready: false,
+  detection_requested: false, detection_result: null,
 };
 
 test('/player는 고정 생활자로 Player를 열고 보호자 루트와 분리한다', () => {
@@ -42,6 +46,52 @@ test('임의 생활자와 중첩 Player 경로는 home_23에 연결하지 않는
 test('현재 origin에서 ws와 wss 주소를 만든다', () => {
   assert.equal(playbackWebSocketUrl({ protocol: 'https:', host: 'nulbom.example' }), 'wss://nulbom.example/ws/playback');
   assert.equal(playbackWebSocketUrl({ protocol: 'http:', host: '127.0.0.1:5175' }), 'ws://127.0.0.1:5175/ws/playback');
+});
+
+test('heartbeat는 YouTube 실제 상태와 현재 request_id를 함께 보고한다', () => {
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true,
+    uiState: TV_PLAYER_STATE.PLAYING,
+    requestId: command.request_id,
+    youtubeState: 1,
+  }), { player_state: 'PLAYING', request_id: command.request_id, ...defaultDetection });
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true,
+    uiState: TV_PLAYER_STATE.PLAYING,
+    requestId: command.request_id,
+    youtubeState: 2,
+  }), { player_state: 'PAUSED', request_id: command.request_id, ...defaultDetection });
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true,
+    uiState: TV_PLAYER_STATE.PLAYING,
+    requestId: command.request_id,
+    youtubeState: 0,
+  }), { player_state: 'ENDED', request_id: command.request_id, ...defaultDetection });
+});
+
+test('재생 요청이 없을 때 준비 상태만 READY로 보고한다', () => {
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true, uiState: TV_PLAYER_STATE.READY, requestId: null,
+  }), { player_state: 'READY', request_id: null, ...defaultDetection });
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: false, uiState: TV_PLAYER_STATE.SETUP, requestId: null,
+  }), {
+    player_state: 'NOT_READY', request_id: null,
+    ...defaultDetection, detection_state: 'OFFLINE',
+  });
+});
+
+test('heartbeat는 실제 원격 감지와 마이크 상태를 함께 보낸다', () => {
+  assert.deepEqual(playerHeartbeatSnapshot({
+    prepared: true, uiState: TV_PLAYER_STATE.READY, requestId: null,
+    detection: {
+      detection_state: 'RECORDING', microphone_ready: true,
+      detection_requested: true, detection_result: null,
+    },
+  }), {
+    player_state: 'READY', request_id: null, detection_state: 'RECORDING',
+    microphone_ready: true, detection_requested: true, detection_result: null,
+  });
 });
 
 test('생활자·video ID·만료 시각을 검증한다', () => {

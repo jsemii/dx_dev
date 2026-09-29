@@ -74,6 +74,21 @@ test('STOP 실패 시 마이크를 시작하지 않고 오류를 전달한다', 
   assert.deepEqual(events, ['STOPPING_PLAYBACK', 'STOP_FAILED']);
 });
 
+test('ERROR + BUSY도 STOPPED/READY 이후에만 마이크를 재시작한다', async () => {
+  const events = [];
+  const monitor = monitorHarness(ANGER_MONITOR_STATE.ERROR, events);
+  await resumeDetectionWorkflow({
+    homeId: 'home_23',
+    monitor,
+    playbackStatus: { status: 'BUSY', ready: false },
+    stopPlayback: async () => { events.push('STOPPED_READY'); return { stopped: true, ready: true }; },
+    getSetting: async () => { events.push('SETTING_CONFIRMED'); return { enabled: true }; },
+  });
+  assert.deepEqual(events, [
+    'STOPPING_PLAYBACK', 'STOPPED_READY', 'SETTING_CONFIRMED', 'MICROPHONE_RESUMED',
+  ]);
+});
+
 test('NOT_DETECTED + READY는 STOP 없이 설정 확인 후 즉시 재개한다', async () => {
   const events = [];
   const monitor = monitorHarness(ANGER_MONITOR_STATE.NOT_DETECTED, events);
@@ -114,12 +129,17 @@ test('설정이 OFF라면 마이크를 재시작하지 않고 모니터를 종�
   assert.deepEqual(result, { enabled: false, resumed: false });
 });
 
-test('DETECTED → STOP → READY → 새 감지 흐름을 mock으로 3회 반복한다', async () => {
+test('화면 상태와 무관하게 BUSY → STOP → READY → 새 감지를 3회 반복한다', async () => {
   const events = [];
   let stopCalls = 0;
   let resumeCalls = 0;
-  for (let cycle = 0; cycle < 3; cycle += 1) {
-    const monitor = monitorHarness(ANGER_MONITOR_STATE.DETECTED, events);
+  const states = [
+    ANGER_MONITOR_STATE.DETECTED,
+    ANGER_MONITOR_STATE.ERROR,
+    ANGER_MONITOR_STATE.NOT_DETECTED,
+  ];
+  for (const state of states) {
+    const monitor = monitorHarness(state, events);
     const originalResume = monitor.resume.bind(monitor);
     monitor.resume = async () => { resumeCalls += 1; await originalResume(); };
     await resumeDetectionWorkflow({

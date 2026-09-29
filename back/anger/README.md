@@ -59,6 +59,12 @@ READY Player를 유지하고, 새 Player가 READY를 보낸 순간에만 우선�
 기존 Player는 WebSocket close code `4001`로 종료됩니다.
 영상 재생 중 감지 재개 요청은 `STOP → STOPPED → READY` 확인 후에만 마이크를 다시
 시작합니다. 중지 확인이 없으면 `503 PLAYBACK_STOP_TIMEOUT`을 반환하고 BUSY를 해제합니다.
+Player의 PONG에는 실제 `player_state`와 현재 `request_id`가 포함됩니다. Gateway는 이를
+기준으로 READY/BUSY를 재동기화하며, PLAYING 상태 보고가 45초 이상 끊기면 BUSY와
+pending 요청을 정리하고 해당 WebSocket을 close code `4002`로 종료합니다. heartbeat는
+20초, 연결 timeout은 60초의 코드 기본값을 사용하므로 별도 배포 환경변수가 필요 없습니다.
+REGISTER·READY·PLAY·PLAYING·ENDED·STOP·STOPPED·timeout은 `connection_id`,
+`request_id`, `elapsed_ms`만 포함한 구조화 로그로 남기며 URL·음성·비밀값은 기록하지 않습니다.
 
 Player는 별도 3002 서버가 아니라 동일 프론트의 `/player`입니다. 배포에서는
 `https://현재도메인/player`, WebSocket은 같은 origin의 `/ws/playback`을 사용합니다.
@@ -70,7 +76,9 @@ Player는 별도 3002 서버가 아니라 동일 프론트의 `/player`입니다
 
 `session_id` 결과는 프로세스 메모리에 5분간 보관하여 동일 녹음의 중복 재생을
 방지합니다. 프로세스 재시작이나 여러 인스턴스 간에는 공유되지 않는 데모용
-멱등성 처리입니다.
+멱등성 처리입니다. Player 연결 상태도 프로세스 메모리에 있으므로 Anger 서비스는
+반드시 replica 1개로 실행해야 합니다. 저장소의 통합 compose에도 `replicas: 1`을
+명시합니다.
 
 ## 테스트
 

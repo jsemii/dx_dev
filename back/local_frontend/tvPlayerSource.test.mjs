@@ -36,7 +36,7 @@ test('Player는 고정 생활자로 pairing과 WebSocket REGISTER를 수행한�
   const componentSource = await readFile(componentUrl, 'utf8');
   assert.match(mainSource, /homeId=\{SAFETY_CARE_HOME_ID\}/);
   assert.match(componentSource, /pairPlayer\(fetch, homeId, pairingCode\.trim\(\)\)/);
-  assert.match(componentSource, /send\(\{ type: 'REGISTER', home_id: homeId \}, target\)/);
+  assert.match(componentSource, /type: 'REGISTER', home_id: homeId, player_state: 'READY'/);
 });
 
 test('Nginx는 exact /player와 기존 하위 Player 경로를 SPA로 전달한다', async () => {
@@ -64,7 +64,8 @@ test('Player는 같은 IFrame에서 0초 재생하고 외부 창 fallback을 만
 test('준비 클릭 전 READY를 전송하지 않고 준비 완료 후에만 등록한다', async () => {
   const source = await readFile(componentUrl, 'utf8');
   const prepare = source.match(/const prepare = useCallback\(async \(\) => \{[\s\S]*?\n  \}, \[/)?.[0] || '';
-  assert.match(prepare, /loadYouTubeApi\(\), connectSocket\(\)/);
+  assert.match(prepare, /audioCoordinator\.current\.prepare\(\)/);
+  assert.match(prepare, /loadYouTubeApi\(\), connectSocket\(\), microphonePromise/);
   assert.match(prepare, /createYouTubePlayer/);
   assert.match(prepare, /prepared\.current = true/);
   assert.match(prepare, /announceReady\(webSocket\)/);
@@ -88,6 +89,32 @@ test('Player는 단일 소켓을 사용하고 PLAY를 받은 소켓으로 ACK하
   assert.match(source, /socketManager\.current\?\.dispose\(\)/);
 });
 
+test('Player 준비 클릭에서만 마이크를 준비하고 원격 START와 STOP을 같은 소켓에서 처리한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  assert.match(source, /const microphonePromise = audioCoordinator\.current\.prepare\(\)/);
+  assert.match(source, /command\.type === 'START_DETECTION'/);
+  assert.match(source, /command\.type === 'STOP_DETECTION'/);
+  assert.match(source, /'DETECTION_STARTED' : 'DETECTION_STOPPED'/);
+  assert.match(source, /!isActiveDetectionState\(snapshot\.detection_state\)/);
+  assert.match(source, /type: 'DETECTION_FAILED'/);
+  assert.match(source, /reportStartFailure/);
+  assert.match(source, /audioCoordinator\.current\?\.beforePlayback\(\)/);
+  assert.match(source, /audioCoordinator\.current\?\.afterPlayback\(\)/);
+  assert.doesNotMatch(source, /NM-CSP01/);
+});
+
+test('debug 화면은 실제 AudioContext, track, 음량 측정 상태를 표시한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  for (const field of [
+    'audio_context', 'track_enabled', 'track_muted', 'track_ready_state',
+    'rms', 'threshold_db', 'above_threshold_ms', 'measurement_running',
+  ]) {
+    assert.match(source, new RegExp(`${field}=`));
+  }
+  assert.match(source, /onDiagnostics: \(diagnostics\)/);
+  assert.match(source, /setAudioDebug\(diagnostics\)/);
+});
+
 test('4001로 교체된 Player는 자동 재연결하지 않는다', async () => {
   const source = await readFile(componentUrl, 'utf8');
   const onClose = source.match(/onClose: \(event, closedSocket\) => \{[\s\S]*?scheduleReconnect\([\s\S]*?\n      \},/)?.[0] || '';
@@ -98,4 +125,25 @@ test('4001로 교체된 Player는 자동 재연결하지 않는다', async () =>
   const replacedBranch = onClose.match(/if \(event\?\.code === 4001\) \{[\s\S]*?\n        \}/)?.[0] || '';
   assert.match(replacedBranch, /return;/);
   assert.doesNotMatch(replacedBranch, /scheduleReconnect/);
+});
+
+test('heartbeat와 재연결은 실제 Player 상태와 request_id를 보존한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  assert.match(source, /playerHeartbeatSnapshot/);
+  assert.match(source, /type: 'PONG'[\s\S]*player_state: 'READY'[\s\S]*request_id: null/);
+  assert.match(source, /send\(\{ type: 'PONG', at: command\.at, \.\.\.snapshot \}, sourceSocket\)/);
+  assert.match(source, /playback\.socket = webSocket/);
+  assert.match(source, /playback\.generation = generation/);
+  assert.match(source, /type: 'REGISTER', home_id: homeId, \.\.\.snapshot/);
+  assert.match(source, /type: 'PLAYING', request_id: playback\.requestId/);
+});
+
+test('일반 재연결에서는 재생을 유지하고 4001 교체에서만 영상을 중지한다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  const onClose = source.match(/onClose: \(event, closedSocket\) => \{[\s\S]*?scheduleReconnect\([\s\S]*?\n      \},/)?.[0] || '';
+  const replacedBranch = onClose.match(/if \(event\?\.code === 4001\) \{[\s\S]*?\n        \}/)?.[0] || '';
+  assert.match(replacedBranch, /currentPlayback\.current = null/);
+  assert.match(replacedBranch, /stopVideo/);
+  const beforeReplaced = onClose.slice(0, onClose.indexOf("if (event?.code === 4001)"));
+  assert.doesNotMatch(beforeReplaced, /currentPlayback\.current = null|stopVideo/);
 });

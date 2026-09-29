@@ -10,10 +10,39 @@ export const TV_PLAYER_STATE = Object.freeze({
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_STATE_NAMES = new Map([
+  [-1, 'UNSTARTED'],
+  [0, 'ENDED'],
+  [1, 'PLAYING'],
+  [2, 'PAUSED'],
+  [3, 'BUFFERING'],
+  [5, 'CUED'],
+]);
 
 export function playbackWebSocketUrl(location) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${location.host}/ws/playback`;
+}
+
+export function playerHeartbeatSnapshot({ prepared, uiState, requestId, youtubeState,
+  detection = {} }) {
+  const detectionSnapshot = {
+    detection_state: detection.detection_state || (prepared ? 'READY' : 'OFFLINE'),
+    microphone_ready: Boolean(detection.microphone_ready),
+    detection_requested: Boolean(detection.detection_requested),
+    detection_result: detection.detection_result || null,
+  };
+  if (requestId && UUID.test(String(requestId))) {
+    return {
+      player_state: YOUTUBE_STATE_NAMES.get(youtubeState) || 'CONNECTING',
+      request_id: requestId,
+      ...detectionSnapshot,
+    };
+  }
+  if (prepared && ![TV_PLAYER_STATE.ERROR, TV_PLAYER_STATE.SETUP].includes(uiState)) {
+    return { player_state: 'READY', request_id: null, ...detectionSnapshot };
+  }
+  return { player_state: 'NOT_READY', request_id: null, ...detectionSnapshot };
 }
 
 export function validatePlayCommand(message, homeId, now = Date.now()) {

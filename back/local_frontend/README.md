@@ -84,26 +84,40 @@ npm run dev
 
 다른 맥북에서 TV 화면을 열 때는 프론트를 LAN에 노출한 주소의
 `/player`를 사용합니다. TV 화면에서 최초 한 번 연결 코드를 입력하고
-**시연 화면 준비**를 누릅니다. 이 클릭으로 YouTube IFrame 초기화, 전체화면 요청,
-Screen Wake Lock 및 WebSocket READY 등록이 진행됩니다. 전체화면은 브라우저 정책상
+**시연 화면 준비**를 누릅니다. 이 클릭으로 Player 맥북의 마이크 권한 요청,
+YouTube IFrame 초기화, 전체화면 요청, Screen Wake Lock 및 WebSocket READY 등록이
+진행됩니다. 전체화면과 마이크 권한은 브라우저 정책상
 반드시 사용자 클릭에서만 요청할 수 있습니다. 준비 완료 후에는 순수한 검은 화면이
 되고, 영상도 같은 탭의 IFrame에서만 재생합니다. 팝업이나 일반 YouTube fallback은
 사용하지 않습니다. 운영자 상태 확인은 `/player?debug=1`에서만 표시됩니다.
 같은 생활자의 새 Player가 READY가 되면 기존 Player는 close code `4001`로 종료되고
 자동 재연결하지 않습니다. 새 Player가 READY 되기 전까지는 기존 READY Player가 계속
 활성 상태를 유지합니다.
+heartbeat 응답에는 YouTube IFrame의 실제 상태와 현재 `request_id`, 원격 감지 상태,
+마이크 준비 여부를 포함합니다.
+일반 네트워크 재연결에서는 재생 중인 영상을 중지하지 않고 PLAYING 상태를 다시
+등록하며, 실제 영상이 종료된 경우 READY로 복구합니다.
 
 안정 돌봄 화면은 canonical 상태 API인 `/api/playback/status`를 주기적으로 확인합니다.
 기존 `/api/anger/playback-status`는 호환용으로 동일 응답을 반환합니다. 준비된 Player가 없으면
-마이크와 녹음을 시작하지 않습니다. Player가 준비된 뒤에도 사용자가 **감지 시작**을
-눌러야 마이크를 다시 시작하므로 연결 복구 시 자동 녹음이나 중복 STT가 발생하지 않습니다.
-안정 돌봄을 켜면 브라우저 마이크가 음량을 감지하고 10초 녹음 후 Anger API로
-전송합니다. 미감지 결과에서는 자동 재개하지 않으며 **감지 재개**를 눌러야 다시
-시작합니다. 분노 감지 후 영상 재생 중 **감지 재개**를 누르면 프론트가
+아이패드 마이크로 대체하지 않습니다. Player가 준비된 뒤 사용자가 **감지 시작**을
+누르면 `POST /api/playback/detection/start`가 기존 활성 Player WebSocket에
+`START_DETECTION`을 보내며, Player 맥북이 음량 감지와 10초 녹음, Anger 분석 요청을
+수행합니다. **감지 중지**와 안정 돌봄 OFF는 `STOP_DETECTION`을 보내며 아이패드의
+목소리 등록 화면은 기존처럼 아이패드 마이크를 사용합니다.
+
+분노 감지 후 영상 재생 중 **감지 재개**를 누르면 프론트가
 `POST /api/playback/stop`을 호출하고 Player의 `STOPPED`와 Gateway의 `READY`를
-확인한 뒤 설정이 여전히 ON인지 조회합니다. 이 순서가 끝난 후에만 마이크를 다시
-열어 재생 중인 영상 소리가 새 녹음에 들어가지 않도록 합니다. Player가 OFFLINE 또는
-NOT_READY이면 빈 화면 대신 재생 화면 준비 안내를 표시합니다.
+확인한 뒤 설정이 여전히 ON인지 조회하고 새 원격 감지 명령을 보냅니다. Player의 공통
+audio lock은 영상 재생 전에 음량 감지와 녹음을 중지하고, 종료 후 1.5초 cooldown을
+거쳐 원격 감지 요청이 유지될 때만 감지를 재개합니다. Player가 OFFLINE 또는
+NOT_READY이면 빈 화면 대신 재생 화면 준비 안내를 표시합니다. 화면이 ERROR 상태여도
+Gateway가 BUSY라면 감지 재개 버튼을 활성화하고 동일한 STOP 복구 절차를 수행합니다.
+
+목소리 등록과 현재 TTS 미리듣기는 음성 서버가 `voice_id` 소유권과 문구를 검증하는
+기존 아이패드 흐름을 유지합니다. TTS 출력을 Player로 옮기려면 음성 서버의 검증 결과를
+Anger Gateway의 안전한 내부 명령으로 전달하는 연동이 추가로 필요하며, 클라이언트가
+임의 URL이나 `voice_id`를 Player에 보내는 방식은 사용하지 않습니다.
 
 제품 상세는 `public.appliance_data.appliances`의 실제 사건을 사용합니다. TV는
 동일 episode의 켜짐·꺼짐을 우선 연결하고, 남은 사건이 엄격한

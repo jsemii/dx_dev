@@ -21,9 +21,7 @@ export async function resumeDetectionWorkflow({
   const currentPlaybackStatus = getPlaybackStatus
     ? await getPlaybackStatus(homeId)
     : playbackStatus;
-  const detectedWhileBusy = monitor.state === ANGER_MONITOR_STATE.DETECTED
-    && currentPlaybackStatus.status === 'BUSY';
-  if (detectedWhileBusy) {
+  if (currentPlaybackStatus.status === 'BUSY') {
     monitor.beginPlaybackStop();
     const stopped = await stopPlayback(homeId);
     if (!stopped?.ready) throw new Error('생활자 재생 화면의 영상 중지를 확인하지 못했습니다.');

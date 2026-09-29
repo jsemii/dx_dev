@@ -11,7 +11,7 @@ export function createPlaybackStatusRouter({ playbackClient }) {
   router.get('/playback-status', async (request, response, next) => {
     try {
       const homeId = validateHomeId(request.query.home_id);
-      const status = playbackClient.getStatus(homeId);
+      const status = playbackClient.getDetailedStatus?.(homeId) || playbackClient.getStatus(homeId);
       return response.json(playbackStatusResponse(status));
     } catch (error) {
       if (error?.code === 'PLAYBACK_UNAVAILABLE') {

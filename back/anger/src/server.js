@@ -10,6 +10,11 @@ import { AngerAnalysisService } from './services/angerAnalysisService.js';
 import { SessionResultCache } from './services/sessionResultCache.js';
 import { closeAngerResources } from './lifecycle.js';
 import { attachPlaybackWebSocket } from './playbackWebSocket.js';
+import {
+  PLAYER_CONNECTION_TIMEOUT_MS,
+  PLAYER_HEARTBEAT_INTERVAL_MS,
+  PLAYER_STATE_HEARTBEAT_TIMEOUT_MS,
+} from './constants/player.js';
 
 const config = loadConfig();
 assertRuntimeConfig(config);
@@ -24,6 +29,9 @@ const transcriptionService = new TranscriptionService(
 const playbackClient = new PlaybackGateway({
   ackTimeoutMs: config.playbackTimeoutMs,
   commandTtlMs: config.playbackCommandTtlMs,
+  connectionTimeoutMs: PLAYER_CONNECTION_TIMEOUT_MS,
+  stateHeartbeatTimeoutMs: PLAYER_STATE_HEARTBEAT_TIMEOUT_MS,
+  logger: console,
 });
 const analysisService = new AngerAnalysisService({
   safetyCareRepository,
@@ -38,7 +46,7 @@ const app = createApp({
 
 const server = createServer(app);
 const webSocketServer = attachPlaybackWebSocket(server, { config, playbackGateway: playbackClient });
-const heartbeat = setInterval(() => playbackClient.heartbeat(), 20_000);
+const heartbeat = setInterval(() => playbackClient.heartbeat(), PLAYER_HEARTBEAT_INTERVAL_MS);
 heartbeat.unref?.();
 
 server.listen(config.port, '0.0.0.0', () => {
