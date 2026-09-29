@@ -471,18 +471,20 @@ def build_daily_response(home_id: str, day: date, snapshot: dict, *, now: dateti
 
 
 def create_handler(repository: PsqlRepository, allowed_origins: set[str], now_provider: Callable[[], datetime] = seoul_now):
-    allowed_paths = {"/api/appliances/daily", "/api/care/dashboard"}
+    allowed_paths = {"/api/server-date", "/api/appliances/daily", "/api/care/dashboard"}
 
     class ApplianceHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
             # Keep resident identifiers and query strings out of access logs.
             LOGGER.info("%s %s", self.command, urlsplit(self.path).path)
 
-        def _send_json(self, status: int, payload: dict) -> None:
+        def _send_json(self, status: int, payload: dict, *, no_store: bool = False) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            if no_store:
+                self.send_header("Cache-Control", "no-store")
             origin = self.headers.get("Origin")
             if origin in allowed_origins:
                 self.send_header("Access-Control-Allow-Origin", origin)
@@ -514,6 +516,16 @@ def create_handler(repository: PsqlRepository, allowed_origins: set[str], now_pr
                 self._send_json(404, {"error": {"code": "not_found", "message": "Not found"}})
                 return
             current = now_provider().astimezone(SEOUL)
+            if url.path == "/api/server-date":
+                if url.query:
+                    self._send_json(400, {"error": {"code": "invalid_request", "message": "날짜 API에는 쿼리 파라미터를 지정할 수 없습니다."}})
+                    return
+                self._send_json(
+                    200,
+                    {"today": current.date().isoformat(), "timezone": "Asia/Seoul"},
+                    no_store=True,
+                )
+                return
             try:
                 home_id, day = parse_inputs(url.query, today=current.date())
             except ValueError as error:

@@ -2,14 +2,14 @@ import { dailyReportMock } from './data/dailyReportData.js';
 
 const asset = (name) => `/assets/${name}`;
 
-function DateSelector({ date, onDateChange }) {
+function DateSelector({ date, onDateChange, canGoPrevious, canGoNext }) {
   return (
     <div className="report-date-selector" aria-label="리포트 날짜">
-      <button type="button" onClick={() => onDateChange?.(-1)} aria-label="이전 날짜">
+      <button type="button" onClick={() => onDateChange?.(-1)} aria-label="이전 날짜" disabled={!canGoPrevious}>
         <img src={asset('date-previous.svg')} alt="" />
       </button>
       <time>{date}</time>
-      <button type="button" onClick={() => onDateChange?.(1)} aria-label="다음 날짜">
+      <button type="button" onClick={() => onDateChange?.(1)} aria-label="다음 날짜" disabled={!canGoNext}>
         <img src={asset('date-next.svg')} alt="" />
       </button>
     </div>
@@ -58,10 +58,21 @@ function ReportChanges({ changes }) {
   );
 }
 
-export default function DailyReport({ report = dailyReportMock, onDateChange, onShare }) {
+export default function DailyReport({
+  report = dailyReportMock,
+  onDateChange,
+  canGoPrevious = true,
+  canGoNext = true,
+  onShare,
+}) {
   return (
     <div className="daily-report">
-      <DateSelector date={report.date} onDateChange={onDateChange} />
+      <DateSelector
+        date={report.date}
+        onDateChange={onDateChange}
+        canGoPrevious={canGoPrevious}
+        canGoNext={canGoNext}
+      />
       <ReportSummary summary={report.summary} />
       <LifeTimeline entries={report.timeline || []} />
       <ReportChanges changes={report.changes || []} />

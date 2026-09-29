@@ -6,13 +6,27 @@ import { useReportDate } from './ReportDateContext.jsx';
 import { mapDailyReport, reportPlaceholder } from './reportTransform.mjs';
 
 export default function LocalDailyReport({ onShare }) {
-  const { reportDate, shiftReportDate } = useReportDate();
+  const {
+    reportDate,
+    serverToday,
+    dateStatus,
+    dateError,
+    canGoPrevious,
+    canGoNext,
+    shiftReportDate,
+  } = useReportDate();
   const [result, setResult] = useState({ kind: 'loading' });
 
   useEffect(() => {
     let active = true;
+    if (dateStatus !== 'ready' || !reportDate || !serverToday) {
+      setResult(dateStatus === 'error'
+        ? { kind: 'date-error', message: dateError }
+        : { kind: 'loading' });
+      return () => { active = false; };
+    }
     setResult({ kind: 'loading' });
-    loadDailyReport(fetch, REPORT_HOME_ID, reportDate)
+    loadDailyReport(fetch, REPORT_HOME_ID, reportDate, serverToday)
       .then((response) => {
         if (!active) return;
         if (response.kind === 'ready') {
@@ -25,11 +39,21 @@ export default function LocalDailyReport({ onShare }) {
         if (active) setResult({ kind: 'error', message: error.message });
       });
     return () => { active = false; };
-  }, [reportDate]);
+  }, [dateError, dateStatus, reportDate, serverToday]);
 
   const report = result.kind === 'ready'
     ? result.report
-    : reportPlaceholder(reportDate, result.kind === 'loading' ? '리포트를 불러오고 있어요.' : result.message);
+    : reportDate
+      ? reportPlaceholder(reportDate, result.kind === 'loading' ? '리포트를 불러오고 있어요.' : result.message)
+      : { date: '날짜 확인 필요', summary: result.message || '서버 날짜를 불러오고 있어요.', timeline: [], changes: [] };
 
-  return <TeamDailyReport report={report} onDateChange={shiftReportDate} onShare={onShare} />;
+  return (
+    <TeamDailyReport
+      report={report}
+      onDateChange={shiftReportDate}
+      canGoPrevious={canGoPrevious}
+      canGoNext={canGoNext}
+      onShare={onShare}
+    />
+  );
 }

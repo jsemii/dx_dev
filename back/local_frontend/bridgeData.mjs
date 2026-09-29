@@ -2,7 +2,6 @@
 export const DEFAULT_HOME_ID = 'home_23';
 // Augmented appliance/reporting data uses the selected representative household.
 export const REPORT_HOME_ID = 'home_23';
-export const DEFAULT_DATE = '2026-09-23';
 export const SUPPORTED_APPLIANCE_IDS = Object.freeze(['purifier', 'refrigerator', 'tv']);
 
 export function selectSupportedCards(cards) {
@@ -102,19 +101,20 @@ export function mapCareDashboard(response, originalCards) {
   };
 }
 
-export function dashboardPlaceholder(originalCards, kind) {
+export function dashboardPlaceholder(originalCards, kind, detail) {
   const loading = kind === 'loading';
   const message = loading ? '조회 중' : '조회 실패';
+  const failureDetail = detail || '돌봄 기록을 불러오지 못했어요.';
   return {
     cards: pendingCards(originalCards, message),
     overview: {
       status: message,
-      message: [loading ? '돌봄 기록을 불러오고 있어요.' : '돌봄 기록을 불러오지 못했어요.'],
+      message: [loading ? '돌봄 기록을 불러오고 있어요.' : failureDetail],
       lastAppliance: message,
     },
     recentCare: [{
       id: `${kind}-care`,
-      title: loading ? '돌봄 기록을 불러오고 있어요.' : '돌봄 기록 조회에 실패했어요.',
+      title: loading ? '돌봄 기록을 불러오고 있어요.' : failureDetail,
       detail: '',
       time: '',
     }],
