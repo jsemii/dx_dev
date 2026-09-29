@@ -113,6 +113,7 @@ public class VoiceProfileRepository {
                 + "CROSS JOIN LATERAL jsonb_array_elements(profile.voice_profiles) entry "
                 + "WHERE profile.resident_thinq_id = ? "
                 + "AND COALESCE((entry->>'requires_verification')::boolean, true) = false "
+                + "AND COALESCE((entry->>'deleting')::boolean, false) = false "
                 + "ORDER BY (entry->>'created_at')::timestamptz DESC, entry->>'voice_id' LIMIT 1";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, homeId);
@@ -329,7 +330,9 @@ public class VoiceProfileRepository {
                 + "FROM jsonb_array_elements(target.voice_profiles) WITH ORDINALITY candidates(candidate, ordinal) "
                 + "WHERE candidate->>'voice_id' <> input.voice_id "
                 + "AND COALESCE((candidate->>'requires_verification')::boolean, true) = false "
-                + "ORDER BY ordinal LIMIT 1) AS next_default, "
+                + "AND COALESCE((candidate->>'deleting')::boolean, false) = false "
+                + "ORDER BY (candidate->>'created_at')::timestamptz DESC, "
+                + "candidate->>'voice_id' LIMIT 1) AS next_default, "
                 + "EXISTS (SELECT 1 FROM jsonb_array_elements(target.voice_profiles) owned "
                 + "WHERE owned->>'voice_id' = input.voice_id) AS found "
                 + "FROM target, input"
@@ -345,6 +348,36 @@ public class VoiceProfileRepository {
             statement.setString(2, voiceId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next() || !result.getBoolean("deleted")) throw new VoiceNotFoundException();
+            }
+        } catch (SQLException | IllegalStateException error) {
+            throw unavailable(error);
+        }
+    }
+
+    public void markDeleting(String homeId, String voiceId) {
+        String sql = "WITH input AS ("
+                + "SELECT CAST(? AS varchar(128)) AS resident_id, CAST(? AS text) AS voice_id"
+                + "), updated AS ("
+                + "UPDATE public.voice_profile profile SET voice_profiles = ("
+                + "SELECT jsonb_agg(CASE WHEN entry->>'voice_id' = input.voice_id "
+                + "THEN jsonb_set(entry, '{deleting}', 'true'::jsonb, true) ELSE entry END ORDER BY ordinal) "
+                + "FROM jsonb_array_elements(profile.voice_profiles) WITH ORDINALITY entries(entry, ordinal)"
+                + "), default_voice_id = CASE WHEN profile.default_voice_id = input.voice_id THEN ("
+                + "SELECT candidate->>'voice_id' FROM jsonb_array_elements(profile.voice_profiles) candidate "
+                + "WHERE candidate->>'voice_id' <> input.voice_id "
+                + "AND COALESCE((candidate->>'requires_verification')::boolean, true) = false "
+                + "AND COALESCE((candidate->>'deleting')::boolean, false) = false "
+                + "ORDER BY (candidate->>'created_at')::timestamptz DESC, "
+                + "candidate->>'voice_id' LIMIT 1) ELSE profile.default_voice_id END "
+                + "FROM input WHERE profile.resident_thinq_id = input.resident_id "
+                + "AND EXISTS (SELECT 1 FROM jsonb_array_elements(profile.voice_profiles) owned "
+                + "WHERE owned->>'voice_id' = input.voice_id) RETURNING 1"
+                + ") SELECT EXISTS (SELECT 1 FROM updated) AS marked";
+        try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, homeId);
+            statement.setString(2, voiceId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next() || !result.getBoolean("marked")) throw new VoiceNotFoundException();
             }
         } catch (SQLException | IllegalStateException error) {
             throw unavailable(error);

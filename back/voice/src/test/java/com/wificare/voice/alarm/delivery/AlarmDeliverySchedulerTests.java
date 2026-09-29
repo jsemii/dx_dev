@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.wificare.voice.dto.RegisteredVoice;
+import com.wificare.voice.exception.ElevenLabsApiException;
 import com.wificare.voice.service.ElevenLabsTextToSpeechService;
 import com.wificare.voice.service.VoiceProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,6 +111,49 @@ class AlarmDeliverySchedulerTests {
 
         verify(deliveries).fail(DELIVERY_ID, "TTS_FAILED");
         verify(deliveries, never()).recordPlaybackOutcome(any(), any());
+    }
+
+    @Test
+    void providerMissingVoiceHasADistinctSafeFailureCode() {
+        AlarmDelivery delivery = delivery("MEAL");
+        when(voices.findLatestVerified("home_23")).thenReturn(Optional.of(
+                new RegisteredVoice("stale-provider-id", "삭제된 목소리", false, NOW)));
+        when(textToSpeech.generateSpeech(anyString(), anyString()))
+                .thenThrow(new ElevenLabsApiException("safe message", 404));
+
+        scheduler(properties(true)).execute(delivery, NOW);
+
+        verify(deliveries).fail(DELIVERY_ID, "VOICE_PROVIDER_NOT_FOUND");
+        verify(deliveries, never()).recordPlaybackOutcome(any(), any());
+    }
+
+    @Test
+    void everyNewDeliveryReadsTheLatestVerifiedVoiceAgainWithoutCaching() {
+        AlarmDelivery first = delivery("MEAL");
+        AlarmDelivery second = new AlarmDelivery(
+                UUID.fromString("44444444-4444-4444-8444-444444444444"),
+                UUID.fromString("55555555-5555-4555-8555-555555555555"),
+                "home_23", "MEDICATION", NOW, "GENERATING",
+                UUID.fromString("66666666-6666-4666-8666-666666666666"));
+        RegisteredVoice oldVoice = new RegisteredVoice(
+                "old-provider-id", "이전 목소리", false, NOW.minusSeconds(60));
+        RegisteredVoice newVoice = new RegisteredVoice(
+                "new-provider-id", "새 목소리", false, NOW);
+        when(voices.findLatestVerified("home_23"))
+                .thenReturn(Optional.of(oldVoice), Optional.of(newVoice));
+        when(textToSpeech.generateSpeech(anyString(), anyString()))
+                .thenReturn(new byte[] { 1, 2, 3 });
+        when(playback.play(anyString(), any(), any(), any(), anyString()))
+                .thenReturn(new AlarmPlaybackResult(
+                        REQUEST_ID, "COMPLETED", NOW, NOW.plusSeconds(1), null));
+
+        AlarmDeliveryScheduler scheduler = scheduler(properties(true));
+        scheduler.execute(first, NOW);
+        scheduler.execute(second, NOW);
+
+        verify(voices, times(2)).findLatestVerified("home_23");
+        verify(textToSpeech).generateSpeech("old-provider-id", "밥 먹어요");
+        verify(textToSpeech).generateSpeech("new-provider-id", "약 먹어요");
     }
 
     @Test

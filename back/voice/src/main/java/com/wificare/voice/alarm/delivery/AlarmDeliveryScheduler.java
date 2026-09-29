@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.wificare.voice.dto.RegisteredVoice;
+import com.wificare.voice.exception.ElevenLabsApiException;
 import com.wificare.voice.service.ElevenLabsTextToSpeechService;
 import com.wificare.voice.service.VoiceProfileRepository;
 import org.slf4j.Logger;
@@ -84,6 +85,13 @@ public class AlarmDeliveryScheduler {
         byte[] audio;
         try {
             audio = textToSpeech.generateSpeech(voice.voiceId(), phrase);
+        } catch (ElevenLabsApiException error) {
+            String failureCode = error.getUpstreamStatus() == 404
+                    ? "VOICE_PROVIDER_NOT_FOUND" : "TTS_FAILED";
+            deliveries.fail(delivery.deliveryId(), failureCode);
+            log.warn("Alarm delivery failed: delivery_id={}, code={}",
+                    delivery.deliveryId(), failureCode);
+            return;
         } catch (RuntimeException error) {
             deliveries.fail(delivery.deliveryId(), "TTS_FAILED");
             log.warn("Alarm delivery failed: delivery_id={}, code=TTS_FAILED", delivery.deliveryId());

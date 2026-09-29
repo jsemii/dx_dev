@@ -134,7 +134,9 @@ class VoiceProfileRepositoryTests {
         verify(connection).prepareStatement(contains(
                 "COALESCE((entry->>'requires_verification')::boolean, true) = false"));
         verify(connection).prepareStatement(contains(
-                "ORDER BY (entry->>'created_at')::timestamptz DESC"));
+                "COALESCE((entry->>'deleting')::boolean, false) = false"));
+        verify(connection).prepareStatement(contains(
+                "ORDER BY (entry->>'created_at')::timestamptz DESC, entry->>'voice_id' LIMIT 1"));
         verify(statement).setString(1, "home_23");
     }
 
@@ -341,9 +343,31 @@ class VoiceProfileRepositoryTests {
         verify(connection).prepareStatement(contains("THEN filtered.next_default"));
         verify(connection).prepareStatement(contains(
                 "COALESCE((candidate->>'requires_verification')::boolean, true) = false"));
+        verify(connection).prepareStatement(contains(
+                "ORDER BY (candidate->>'created_at')::timestamptz DESC, candidate->>'voice_id' LIMIT 1"));
         verify(connection).prepareStatement(contains("'[]'::jsonb"));
         verify(connection).prepareStatement(org.mockito.ArgumentMatchers.argThat(
                 sql -> !sql.contains("SET shared_phrases")));
+        verify(statement).setString(1, "home_23");
+        verify(statement).setString(2, "provider-voice-id");
+    }
+
+    @Test
+    void markDeletingAtomicallyExcludesTheVoiceAndMovesDefaultToLatestVerified() throws SQLException {
+        query();
+        when(result.next()).thenReturn(true);
+        when(result.getBoolean("marked")).thenReturn(true);
+
+        repository.markDeleting("home_23", "provider-voice-id");
+
+        verify(connection).prepareStatement(contains(
+                "jsonb_set(entry, '{deleting}', 'true'::jsonb, true)"));
+        verify(connection).prepareStatement(contains(
+                "COALESCE((candidate->>'requires_verification')::boolean, true) = false"));
+        verify(connection).prepareStatement(contains(
+                "COALESCE((candidate->>'deleting')::boolean, false) = false"));
+        verify(connection).prepareStatement(contains(
+                "ORDER BY (candidate->>'created_at')::timestamptz DESC, candidate->>'voice_id' LIMIT 1"));
         verify(statement).setString(1, "home_23");
         verify(statement).setString(2, "provider-voice-id");
     }

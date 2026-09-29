@@ -126,7 +126,7 @@ class RegisteredVoiceControllerTests {
     }
 
     @Test
-    void deletesProviderVoiceBeforeItsOwnedDatabaseRow() {
+    void marksVoiceUnavailableBeforeProviderDeletionAndFinalCleanup() {
         String homeId = "demo_solo_house009";
         String voiceId = "provider-voice-id";
         when(profiles.requireOwned(homeId, voiceId))
@@ -137,6 +137,7 @@ class RegisteredVoiceControllerTests {
         assertThat(response.getStatusCode().value()).isEqualTo(204);
         InOrder order = inOrder(profiles, voiceService);
         order.verify(profiles).requireOwned(homeId, voiceId);
+        order.verify(profiles).markDeleting(homeId, voiceId);
         order.verify(voiceService).deleteVoice(voiceId);
         order.verify(profiles).delete(homeId, voiceId);
     }
@@ -149,11 +150,12 @@ class RegisteredVoiceControllerTests {
         assertThatThrownBy(() -> controller.delete("provider-voice-id", "other_home"))
                 .isInstanceOf(VoiceNotFoundException.class);
         verify(voiceService, never()).deleteVoice("provider-voice-id");
+        verify(profiles, never()).markDeleting("other_home", "provider-voice-id");
         verify(profiles, never()).delete("other_home", "provider-voice-id");
     }
 
     @Test
-    void providerFailureKeepsTheDatabaseRowForRetry() {
+    void providerFailureLeavesADeletionMarkerForRetryAndPreventsSchedulerReuse() {
         String homeId = "demo_solo_house009";
         String voiceId = "provider-voice-id";
         when(profiles.requireOwned(homeId, voiceId))
@@ -163,6 +165,23 @@ class RegisteredVoiceControllerTests {
 
         assertThatThrownBy(() -> controller.delete(voiceId, homeId))
                 .isInstanceOf(ElevenLabsApiException.class);
+        verify(profiles).markDeleting(homeId, voiceId);
+        verify(profiles, never()).delete(homeId, voiceId);
+    }
+
+    @Test
+    void databaseMarkFailureNeverDeletesTheProviderVoice() {
+        String homeId = "demo_solo_house009";
+        String voiceId = "provider-voice-id";
+        when(profiles.requireOwned(homeId, voiceId))
+                .thenReturn(new RegisteredVoice(voiceId, "정수쌤", false, Instant.now()));
+        doThrow(new VoiceStoreUnavailableException(new java.sql.SQLException("private", "08006")))
+                .when(profiles).markDeleting(homeId, voiceId);
+
+        assertThatThrownBy(() -> controller.delete(voiceId, homeId))
+                .isInstanceOf(VoiceStoreUnavailableException.class);
+
+        verify(voiceService, never()).deleteVoice(voiceId);
         verify(profiles, never()).delete(homeId, voiceId);
     }
 
@@ -180,6 +199,7 @@ class RegisteredVoiceControllerTests {
         assertThat(controller.delete(voiceId, homeId).getStatusCode().value()).isEqualTo(204);
 
         verify(voiceService, times(2)).deleteVoice(voiceId);
+        verify(profiles, times(2)).markDeleting(homeId, voiceId);
         verify(profiles, times(2)).delete(homeId, voiceId);
     }
 

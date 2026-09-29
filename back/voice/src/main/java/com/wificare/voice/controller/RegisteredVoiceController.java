@@ -82,6 +82,7 @@ public class RegisteredVoiceController {
             throw new IllegalArgumentException("올바른 목소리 ID가 필요합니다.");
         }
         profiles.requireOwned(homeId, voiceId);
+        profiles.markDeleting(homeId, voiceId);
         voiceService.deleteVoice(voiceId);
         profiles.delete(homeId, voiceId);
         return ResponseEntity.noContent().build();
