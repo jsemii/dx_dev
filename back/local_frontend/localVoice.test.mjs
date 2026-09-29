@@ -19,7 +19,7 @@ test('registered voice rows open the local detail screen', () => {
 test('detail save and permanent deletion use the voice backend', () => {
   assert.match(source, /saveVoiceEdits\(/);
   assert.match(source, /method: 'DELETE'/);
-  assert.match(source, /ElevenLabs와 WiFi Care에서 영구 삭제/);
+  assert.match(source, /window\.confirm\('이 목소리를 영구 삭제할까요\?'\)/);
   assert.match(source, /home_id: DEFAULT_HOME_ID/);
 });
 

@@ -1,4 +1,5 @@
-import { getSeoulTodayIso } from './reportDate.mjs';
+import { isIsoDate } from './reportDate.mjs';
+import { SERVER_DATE_ERROR_MESSAGE } from './serverDateApi.mjs';
 
 const inFlightRequests = new Map();
 
@@ -57,9 +58,12 @@ export function loadDailyReport(
   fetcher,
   homeId,
   reportDate,
-  today = getSeoulTodayIso(),
+  today,
 ) {
-  const key = `${homeId}:${reportDate}`;
+  if (!isIsoDate(today) || !isIsoDate(reportDate)) {
+    return Promise.reject(new Error(SERVER_DATE_ERROR_MESSAGE));
+  }
+  const key = `${homeId}:${reportDate}:${today}`;
   const existing = inFlightRequests.get(key);
   if (existing) return existing;
 

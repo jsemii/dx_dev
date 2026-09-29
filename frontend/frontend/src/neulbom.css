@@ -769,6 +769,11 @@
   opacity: 0.55;
 }
 
+.report-date-selector button:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
 .report-date-selector img {
   display: block;
   width: 20px;

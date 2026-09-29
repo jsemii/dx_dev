@@ -119,3 +119,12 @@ test('future dates make no HTTP request', async () => {
   assert.deepEqual(result, { kind: 'future', message: FUTURE_DATE_MESSAGE });
   assert.equal(calls, 0);
 });
+
+test('missing or invalid server date makes no HTTP request and has no browser fallback', async () => {
+  let calls = 0;
+  await assert.rejects(loadDailyReport(async () => {
+    calls += 1;
+    return response(200);
+  }, 'home_23', '2026-09-28'), /서버 날짜/);
+  assert.equal(calls, 0);
+});

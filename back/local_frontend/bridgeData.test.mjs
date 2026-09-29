@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFileSync, realpathSync } from 'node:fs';
 import {
   dashboardPlaceholder,
-  DEFAULT_DATE,
   formatApplianceValue,
   mapApplianceData,
   mapCareDashboard,
@@ -18,10 +17,6 @@ const originals = [
   { id: 'tv', value: '0.2', status: '정상 작동 중', history: [] },
   { id: 'bedroom-light', value: '2', status: '정상 작동 중', history: [] },
 ];
-
-test('starts local report testing on an already stored report date', () => {
-  assert.equal(DEFAULT_DATE, '2026-09-23');
-});
 
 test('maps API totals and history without provenance badges or operation claims', () => {
   const response = { appliances: [
@@ -151,14 +146,15 @@ test('empty care is explicit and loading or failure never exposes care mocks', (
   assert.equal(dashboardPlaceholder(originals, 'error').recentCare[0].id, 'error-care');
 });
 
-test('local page shares the report date, cancels stale requests and wires real refresh', () => {
+test('local care page uses server today, cancels stale requests and wires real refresh', () => {
   const source = readFileSync('./LocalNeulbomPage.jsx', 'utf8');
-  assert.match(source, /loadCareDashboard\(fetch, REPORT_HOME_ID, reportDate/);
+  assert.match(source, /loadCareDashboard\(fetch, REPORT_HOME_ID, serverToday/);
+  assert.doesNotMatch(source, /\breportDate\b/);
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /requestId === requestIdRef\.current/);
   assert.match(source, /onRefreshCare=\{refreshDashboard\}/);
-  assert.match(source, /applianceUsageResetKey=\{reportDate\}/);
-  assert.match(source, /careStatusAriaLabel=\{`\$\{reportDate\} 돌봄 상태`\}/);
+  assert.match(source, /applianceUsageResetKey=\{serverToday/);
+  assert.match(source, /`\$\{serverToday\} 돌봄 상태`/);
 });
 
 test('only purifier, refrigerator and TV cards are selected for API-backed usage data', () => {
