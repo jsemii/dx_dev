@@ -234,22 +234,95 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(result["care_overview"]["status"], "EMPTY")
         self.assertTrue(all(not product["has_data"] for product in result["products"].values()))
 
-    def test_today_excludes_future_appliance_behavior_and_care(self):
-        today = date(2026, 9, 26)
+    def test_today_includes_full_day_products_and_care_after_current_time(self):
+        today = date(2026, 9, 30)
+        care_id = "66666666-6666-4666-8666-666666666666"
         snapshot = {
-            "appliance": [appliance("REFRIGERATOR", [
-                appliance_event("past", "문 열림", "2026-09-26T09:00:00", "one"),
-                appliance_event("future", "문 열림", "2026-09-26T11:00:00", "two"),
-            ])],
-            "behavior": [],
-            "reporting": [],
+            "appliance": [
+                appliance("PURIFIER", [
+                    appliance_event("water-after-now", "출수 종료", "2026-09-30T07:05:00", "water", 500, "ml"),
+                ]),
+                appliance("REFRIGERATOR", [
+                    appliance_event("fridge-after-now", "문 열림", "2026-09-30T07:20:00", "fridge"),
+                ]),
+                appliance("TV", [
+                    appliance_event("tv-on-after-now", "켜짐", "2026-09-30T19:00:00", "tv"),
+                    appliance_event("tv-off-after-now", "꺼짐", "2026-09-30T20:30:00", "tv"),
+                ]),
+            ],
+            "behavior": [
+                behavior_event("meal-after-now", "식사", "2026-09-30T08:29:00", "주방"),
+            ],
+            "reporting": [
+                care_row(care_id, "care_guidance_sent_event", "2026-09-30T08:10:00+09:00", "식사"),
+                care_row(
+                    care_id, "care_response_confirmed_event", "2026-09-30T08:29:00+09:00", "식사",
+                    response_type="BEHAVIOR", response_id="meal-after-now",
+                ),
+                {**metric("care_no_response_count", 99), "data_date": today.isoformat()},
+                {**metric("care_emergency_alert_count", 99), "data_date": today.isoformat()},
+                {**metric("tv_usage_minutes", 999), "data_date": today.isoformat()},
+            ],
         }
         result = build_dashboard_response(
             "home_23", today, snapshot,
-            now=datetime(2026, 9, 26, 10, 0, tzinfo=SEOUL),
+            now=datetime(2026, 9, 30, 1, 39, tzinfo=SEOUL),
         )
+        self.assertEqual(result["products"]["purifier"]["value"], 0.5)
         self.assertEqual(result["products"]["refrigerator"]["value"], 1)
-        self.assertEqual(result["latest_appliance"]["event_time"], "2026-09-26T09:00:00")
+        self.assertEqual(result["products"]["tv"]["total_minutes"], 90)
+        self.assertEqual(result["products"]["tv"]["value"], 1.5)
+        self.assertEqual(result["latest_appliance"]["event_time"], "2026-09-30T20:30:00")
+        self.assertEqual(result["care_overview"]["completed_count"], 1)
+        self.assertFalse(result["care_overview"]["has_unanswered"])
+        self.assertFalse(result["care_overview"]["has_emergency_alert"])
+        self.assertEqual(result["care_overview"]["message"], ["오늘의 돌봄 기록을", "확인했어요"])
+        self.assertEqual(result["recent_care"][0]["time"], "08:29")
+        self.assertIsNone(result["products"]["tv"]["reporting_metric_minutes"])
+
+    def test_past_day_keeps_selected_date_copy_and_daily_metrics(self):
+        result = self.build()
+        self.assertEqual(
+            result["care_overview"]["message"],
+            ["선택한 날짜의 돌봄 기록을", "확인했어요"],
+        )
+        self.assertEqual(result["products"]["tv"]["reporting_metric_minutes"], 72)
+
+    def test_today_attention_uses_full_day_events_instead_of_daily_metrics(self):
+        today = date(2026, 9, 30)
+        unanswered_id = "77777777-7777-4777-8777-777777777777"
+        snapshot = {
+            "appliance": [],
+            "behavior": [],
+            "reporting": [
+                care_row(
+                    unanswered_id, "care_guidance_sent_event",
+                    "2026-09-30T21:00:00+09:00", "휴식",
+                ),
+                {
+                    "reporting_id": "future-emergency",
+                    "data_date": today.isoformat(),
+                    "event_time": "2026-09-30T22:00:00+09:00",
+                    "record_type": "event",
+                    "subject_type": "care",
+                    "subject": "응급",
+                    "metric_code": "care_emergency_alert_sent_event",
+                    "value": 1,
+                    "unit": "event",
+                    "data_status": "derived_care_event",
+                    "evidence": "test",
+                },
+                {**metric("care_no_response_count", 0), "data_date": today.isoformat()},
+                {**metric("care_emergency_alert_count", 0), "data_date": today.isoformat()},
+            ],
+        }
+        result = build_dashboard_response(
+            "home_23", today, snapshot,
+            now=datetime(2026, 9, 30, 1, 39, tzinfo=SEOUL),
+        )
+        self.assertEqual(result["care_overview"]["status"], "ATTENTION")
+        self.assertTrue(result["care_overview"]["has_unanswered"])
+        self.assertTrue(result["care_overview"]["has_emergency_alert"])
         self.assertEqual(result["care_overview"]["message"], ["오늘의 돌봄 기록이 없어요"])
 
     def test_today_does_not_use_a_full_day_tv_metric(self):
@@ -368,15 +441,21 @@ class HttpTests(unittest.TestCase):
 
     def test_dashboard_http_success_and_future_rejection(self):
         class Repository:
+            calls = 0
+
             def fetch_daily_data(self, home_id, day):
+                self.calls += 1
                 return base_snapshot()
 
-        status, body, _ = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-23")
+        repository = Repository()
+        status, body, _ = self.request(repository, "/api/care/dashboard?home_id=home_23&date=2026-09-23")
         self.assertEqual(status, 200)
         self.assertEqual(body["resident_thinq_id"], "home_23")
-        status, body, _ = self.request(Repository(), "/api/care/dashboard?home_id=home_23&date=2026-09-27")
+        self.assertEqual(repository.calls, 1)
+        status, body, _ = self.request(repository, "/api/care/dashboard?home_id=home_23&date=2026-09-27")
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "invalid_request")
+        self.assertEqual(repository.calls, 1)
 
     def test_database_failure_is_safe_503(self):
         class Repository:

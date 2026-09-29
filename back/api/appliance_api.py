@@ -191,13 +191,19 @@ def _reporting_event_time(value: object) -> datetime:
     return parsed.astimezone(SEOUL)
 
 
-def _is_visible(local_time: datetime, day: date, now: datetime | None) -> bool:
+def _is_visible(local_time: datetime, day: date, time_cutoff: datetime | None) -> bool:
     if local_time.date() != day:
         return False
-    return now is None or day < now.date() or local_time <= now.replace(tzinfo=None)
+    return (
+        time_cutoff is None
+        or day < time_cutoff.date()
+        or local_time <= time_cutoff.replace(tzinfo=None)
+    )
 
 
-def _normalize_appliances(raw_appliances: object, day: date, now: datetime | None) -> list[dict]:
+def _normalize_appliances(
+    raw_appliances: object, day: date, time_cutoff: datetime | None,
+) -> list[dict]:
     if not isinstance(raw_appliances, list):
         raise ValueError("appliances must be an array")
     normalized: list[dict] = []
@@ -215,7 +221,7 @@ def _normalize_appliances(raw_appliances: object, day: date, now: datetime | Non
             if any(not isinstance(event.get(key), str) for key in required):
                 raise ValueError("invalid appliance event fields")
             occurred_at = _local_event_time(event["event_time"])
-            if not _is_visible(occurred_at, day, now):
+            if not _is_visible(occurred_at, day, time_cutoff):
                 continue
             value = event.get("event_value")
             if value is not None and not isinstance(value, (int, float)):
@@ -233,7 +239,9 @@ def _normalize_appliances(raw_appliances: object, day: date, now: datetime | Non
     return sorted(normalized, key=lambda item: (item["event_time"], item["event_id"]))
 
 
-def _normalize_behaviors(raw_behaviors: object, day: date, now: datetime | None) -> list[dict]:
+def _normalize_behaviors(
+    raw_behaviors: object, day: date, time_cutoff: datetime | None,
+) -> list[dict]:
     if not isinstance(raw_behaviors, list):
         raise ValueError("behavior_events must be an array")
     normalized: list[dict] = []
@@ -244,7 +252,7 @@ def _normalize_behaviors(raw_behaviors: object, day: date, now: datetime | None)
         if any(not isinstance(event.get(key), str) for key in required):
             raise ValueError("invalid behavior event fields")
         occurred_at = _local_event_time(event["event_time"])
-        if not _is_visible(occurred_at, day, now):
+        if not _is_visible(occurred_at, day, time_cutoff):
             continue
         normalized.append({
             "event_id": event["event_id"], "event_time": occurred_at,
@@ -295,7 +303,10 @@ def _care_copy(subject: str, source: dict) -> tuple[str, str]:
     return f"{subject} 안내가 있었어요.", "생활 행동이 확인됐어요."
 
 
-def _recent_care(reporting: list[dict], appliances: list[dict], behaviors: list[dict], day: date, now: datetime | None) -> tuple[list[dict], int]:
+def _recent_care(
+    reporting: list[dict], appliances: list[dict], behaviors: list[dict],
+    day: date, time_cutoff: datetime | None,
+) -> tuple[list[dict], int]:
     groups: dict[str, dict[str, list[dict]]] = defaultdict(lambda: {"guidance": [], "response": []})
     visible_guidance_ids: set[str] = set()
     for row in reporting:
@@ -303,7 +314,9 @@ def _recent_care(reporting: list[dict], appliances: list[dict], behaviors: list[
             continue
         try:
             occurred_at = _reporting_event_time(row.get("event_time"))
-            if occurred_at.date() != day or (now is not None and occurred_at > now):
+            if occurred_at.date() != day or (
+                time_cutoff is not None and occurred_at > time_cutoff
+            ):
                 continue
             care_id, _, _ = _care_evidence(row)
         except ValueError:
@@ -415,14 +428,20 @@ def _build_products(
 
 def build_dashboard_response(home_id: str, day: date, snapshot: dict, *, now: datetime | None = None) -> dict:
     current = (now or seoul_now()).astimezone(SEOUL)
-    cutoff = current if day == current.date() else None
-    appliances = _normalize_appliances(snapshot.get("appliance"), day, cutoff)
-    behaviors = _normalize_behaviors(snapshot.get("behavior"), day, cutoff)
+    is_today = day == current.date()
+    # Care management is a date-level view. Preloaded events for the selected
+    # KST calendar day remain visible even when their clock time is later than
+    # the server's current time.
+    time_cutoff: datetime | None = None
+    appliances = _normalize_appliances(snapshot.get("appliance"), day, time_cutoff)
+    behaviors = _normalize_behaviors(snapshot.get("behavior"), day, time_cutoff)
     reporting = snapshot.get("reporting")
     if not isinstance(reporting, list) or any(not isinstance(row, dict) for row in reporting):
         raise ValueError("reporting rows must be an array")
-    recent_care, event_unanswered = _recent_care(reporting, appliances, behaviors, day, cutoff)
-    if cutoff is None:
+    recent_care, event_unanswered = _recent_care(
+        reporting, appliances, behaviors, day, time_cutoff,
+    )
+    if not is_today:
         unanswered_metric = _metric_value(reporting, "care_no_response_count")
         emergency_metric = _metric_value(reporting, "care_emergency_alert_count")
         has_unanswered = (
@@ -434,14 +453,14 @@ def build_dashboard_response(home_id: str, day: date, snapshot: dict, *, now: da
         has_emergency = any(
             row.get("record_type") == "event" and row.get("subject_type") == "care"
             and row.get("metric_code") == "care_emergency_alert_sent_event"
-            and _reporting_event_time(row.get("event_time")) <= current
+            and _reporting_event_time(row.get("event_time")).date() == day
             for row in reporting
         )
     status = "ATTENTION" if has_unanswered or has_emergency else "COMPLETED" if recent_care else "EMPTY"
     if recent_care:
-        message = ["오늘의 돌봄 기록을", "확인했어요"] if cutoff else ["선택한 날짜의 돌봄 기록을", "확인했어요"]
+        message = ["오늘의 돌봄 기록을", "확인했어요"] if is_today else ["선택한 날짜의 돌봄 기록을", "확인했어요"]
     else:
-        message = ["오늘의 돌봄 기록이 없어요"] if cutoff else ["선택한 날짜의 돌봄 기록이 없어요"]
+        message = ["오늘의 돌봄 기록이 없어요"] if is_today else ["선택한 날짜의 돌봄 기록이 없어요"]
     latest = appliances[-1] if appliances else None
     return {
         "resident_thinq_id": home_id, "data_date": day.isoformat(),
@@ -454,7 +473,7 @@ def build_dashboard_response(home_id: str, day: date, snapshot: dict, *, now: da
             "appliance_type": latest["appliance_type"], "name": latest["appliance_name"],
             "event_time": latest["event_time"].isoformat(timespec="seconds"),
         },
-        "products": _build_products(appliances, reporting, allow_daily_metric=cutoff is None),
+        "products": _build_products(appliances, reporting, allow_daily_metric=not is_today),
     }
 
 
