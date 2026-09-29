@@ -89,6 +89,17 @@ test('Player는 단일 소켓을 사용하고 PLAY를 받은 소켓으로 ACK하
   assert.match(source, /socketManager\.current\?\.dispose\(\)/);
 });
 
+test('알림 음성은 기존 소켓과 audio lock을 사용하고 외부 URL을 받지 않는다', async () => {
+  const source = await readFile(componentUrl, 'utf8');
+  assert.match(source, /command\.type !== 'PLAY' && command\.type !== 'PLAY_AUDIO'/);
+  assert.match(source, /decideAudioCommand/);
+  assert.match(source, /audioCoordinator\.current\?\.beforePlayback\(\)/);
+  assert.match(source, /alarmAudio\.current\.play/);
+  assert.match(source, /type: 'PLAYING', request_id: playback\.requestId/);
+  assert.match(source, /type: 'ENDED', request_id: playback\.requestId/);
+  assert.doesNotMatch(source, /command\.(?:url|voice_id)/);
+});
+
 test('Player 준비 클릭에서만 마이크를 준비하고 원격 START와 STOP을 같은 소켓에서 처리한다', async () => {
   const source = await readFile(componentUrl, 'utf8');
   assert.match(source, /const microphonePromise = audioCoordinator\.current\.prepare\(\)/);
@@ -153,7 +164,7 @@ test('일반 재연결에서는 재생을 유지하고 4001 교체에서만 영�
   const onClose = source.match(/onClose: \(event, closedSocket\) => \{[\s\S]*?scheduleReconnect\([\s\S]*?\n      \},/)?.[0] || '';
   const replacedBranch = onClose.match(/if \(event\?\.code === 4001\) \{[\s\S]*?\n        \}/)?.[0] || '';
   assert.match(replacedBranch, /currentPlayback\.current = null/);
-  assert.match(replacedBranch, /stopVideo/);
+  assert.match(replacedBranch, /stopPlaybackMedia/);
   const beforeReplaced = onClose.slice(0, onClose.indexOf("if (event?.code === 4001)"));
-  assert.doesNotMatch(beforeReplaced, /currentPlayback\.current = null|stopVideo/);
+  assert.doesNotMatch(beforeReplaced, /currentPlayback\.current = null|stopPlaybackMedia/);
 });

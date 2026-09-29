@@ -29,6 +29,7 @@ const transcriptionService = new TranscriptionService(
 const playbackClient = new PlaybackGateway({
   ackTimeoutMs: config.playbackTimeoutMs,
   commandTtlMs: config.playbackCommandTtlMs,
+  audioCompletionTimeoutMs: config.playbackAudioCompletionTimeoutMs,
   connectionTimeoutMs: PLAYER_CONNECTION_TIMEOUT_MS,
   stateHeartbeatTimeoutMs: PLAYER_STATE_HEARTBEAT_TIMEOUT_MS,
   logger: console,

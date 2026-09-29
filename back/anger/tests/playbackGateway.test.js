@@ -48,6 +48,95 @@ test('PLAY을 보내고 PLAYING ACK 뒤에만 완료한다', async () => {
   assert.equal(gateway.getStatus('home_23').ready, true);
 });
 
+test('PLAY_AUDIO는 PLAYING과 ENDED를 같은 소켓·request_id로 결합한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = '12121212-1212-4212-8212-121212121212';
+  const alarmId = '34343434-3434-4434-8434-343434343434';
+  const pending = gateway.requestAudioPlayback({
+    homeId: 'home_23', alarmId, requestId,
+    audio: Buffer.from('mock mp3'), mimeType: 'audio/mpeg',
+  });
+  await new Promise(setImmediate);
+  const command = socket.sent.find((message) => message.type === 'PLAY_AUDIO');
+  assert.equal(command.home_id, 'home_23');
+  assert.equal(command.alarm_id, alarmId);
+  assert.equal(command.request_id, requestId);
+  assert.equal(command.audio, Buffer.from('mock mp3').toString('base64'));
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await new Promise(setImmediate);
+  assert.equal(gateway.getStatus('home_23').busy, true);
+  socket.receive({ type: 'ENDED', request_id: requestId });
+  const result = await pending;
+  assert.equal(result.requestId, requestId);
+  assert.equal(result.status, 'COMPLETED');
+  assert.equal(result.failureCode, null);
+  assert.equal(gateway.getStatus('home_23').ready, true);
+});
+
+test('알림 음성과 YouTube는 동일 BUSY 상태를 공유하고 음성 입력을 검증한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = '56565656-5656-4656-8656-565656565656';
+  const pending = gateway.requestAudioPlayback({
+    homeId: 'home_23', alarmId: '78787878-7878-4878-8878-787878787878', requestId,
+    audio: Buffer.from('mock mp3'), mimeType: 'audio/mpeg',
+  });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await new Promise(setImmediate);
+  await assert.rejects(
+    gateway.requestPlayback({
+      homeId: 'home_23', content,
+      requestId: '90909090-9090-4090-8090-909090909090',
+    }),
+    (error) => error.code === 'PLAYER_BUSY',
+  );
+  socket.receive({ type: 'ENDED', request_id: requestId });
+  await pending;
+  await assert.rejects(
+    gateway.requestAudioPlayback({
+      homeId: 'home_23', alarmId: '78787878-7878-4878-8878-787878787878',
+      requestId: 'abababab-abab-4bab-8bab-abababababab',
+      audio: Buffer.from('x'), mimeType: 'audio/wav',
+    }),
+    (error) => error.code === 'INVALID_AUDIO_MIME',
+  );
+});
+
+test('재생 중 알림 음성을 STOP하면 완료가 아니라 중단 실패로 기록한다', async () => {
+  const { gateway, socket } = readyGateway();
+  const requestId = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+  const pending = gateway.requestAudioPlayback({
+    homeId: 'home_23', alarmId: 'efefefef-efef-4fef-8fef-efefefefefef', requestId,
+    audio: Buffer.from('mock mp3'), mimeType: 'audio/mpeg',
+  });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  await new Promise(setImmediate);
+  const stopping = gateway.stopPlayback('home_23');
+  await new Promise(setImmediate);
+  socket.receive({ type: 'STOPPED', request_id: requestId });
+  assert.deepEqual(await stopping, { stopped: true, ready: true });
+  const result = await pending;
+  assert.equal(result.status, 'FAILED');
+  assert.equal(result.failureCode, 'AUDIO_STOPPED');
+});
+
+test('알림 음성 종료 ACK timeout은 BUSY를 해제하고 해당 소켓을 종료한다', async () => {
+  const { gateway, socket } = readyGateway({ audioCompletionTimeoutMs: 5 });
+  const requestId = 'dededede-dede-4ede-8ede-dededededede';
+  const pending = gateway.requestAudioPlayback({
+    homeId: 'home_23', alarmId: 'fafafafa-fafa-4afa-8afa-fafafafafafa', requestId,
+    audio: Buffer.from('mock mp3'), mimeType: 'audio/mpeg',
+  });
+  await new Promise(setImmediate);
+  socket.receive({ type: 'PLAYING', request_id: requestId });
+  const result = await pending;
+  assert.equal(result.status, 'FAILED');
+  assert.equal(result.failureCode, 'AUDIO_COMPLETION_TIMEOUT');
+  assert.equal(gateway.getStatus('home_23').busy, false);
+  assert.equal(socket.readyState, 3);
+});
+
 test('재생 중 새 요청은 PLAYER_BUSY, 동일 ID는 중복으로 거부한다', async () => {
   const { gateway, socket } = readyGateway();
   const firstId = '11111111-1111-4111-8111-111111111111';

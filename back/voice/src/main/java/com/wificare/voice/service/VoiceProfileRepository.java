@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.wificare.voice.db.VoiceDatabase;
@@ -101,6 +102,22 @@ public class VoiceProfileRepository {
                 List<RegisteredVoice> voices = new ArrayList<>();
                 while (result.next()) voices.add(voice(result));
                 return voices;
+            }
+        } catch (SQLException | IllegalStateException error) {
+            throw unavailable(error);
+        }
+    }
+
+    public Optional<RegisteredVoice> findLatestVerified(String homeId) {
+        String sql = "SELECT " + JSON_VOICE_COLUMNS + " FROM public.voice_profile profile "
+                + "CROSS JOIN LATERAL jsonb_array_elements(profile.voice_profiles) entry "
+                + "WHERE profile.resident_thinq_id = ? "
+                + "AND COALESCE((entry->>'requires_verification')::boolean, true) = false "
+                + "ORDER BY (entry->>'created_at')::timestamptz DESC, entry->>'voice_id' LIMIT 1";
+        try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, homeId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(voice(result)) : Optional.empty();
             }
         } catch (SQLException | IllegalStateException error) {
             throw unavailable(error);

@@ -5,6 +5,7 @@ import { createSafetyCareRouter } from './routes/safetyCareRoutes.js';
 import { createAngerAnalysisRouter } from './routes/angerAnalysisRoutes.js';
 import { createPlaybackStatusRouter } from './routes/playbackStatusRoutes.js';
 import { createPlaybackRouter } from './routes/playbackRoutes.js';
+import { createInternalPlaybackRouter } from './routes/internalPlaybackRoutes.js';
 
 export function createApp({
   config, safetyCareRepository, analysisService, playbackClient, sessionCache, logger = console,
@@ -19,6 +20,9 @@ export function createApp({
     },
     methods: ['GET', 'PATCH', 'POST', 'OPTIONS'],
   }));
+  app.use('/internal/playback', express.json({
+    limit: `${Math.ceil((config.alarmAudioMaxBytes || 1_048_576) * 1.5)}b`,
+  }), createInternalPlaybackRouter({ config, playbackGateway: playbackClient }));
   app.use(express.json({ limit: '32kb' }));
 
   app.get('/health', (_request, response) => response.json({ status: 'ok' }));

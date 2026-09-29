@@ -6,8 +6,9 @@ import {
   isActiveDetectionState, PlayerAudioCoordinator, REMOTE_DETECTION_STATE,
 } from './playerAudioCoordinator.mjs';
 import { analyzeAnger } from './safetyCareApi.mjs';
+import { AlarmAudioPlayer } from './alarmAudioPlayer.mjs';
 import {
-  decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
+  decideAudioCommand, decidePlayCommand, PlaybackRequestGuard, playbackWebSocketUrl,
   playerHeartbeatSnapshot, TV_PLAYER_STATE,
 } from './tvPlayerProtocol.mjs';
 
@@ -83,6 +84,7 @@ export default function TvPlayerPage({ homeId }) {
   const connectSocketRef = useRef(null);
   const handleSocketMessageRef = useRef(null);
   const player = useRef(null);
+  const alarmAudio = useRef(null);
   const currentPlayback = useRef(null);
   const guard = useRef(new PlaybackRequestGuard());
   const wakeLock = useRef(null);
@@ -90,6 +92,8 @@ export default function TvPlayerPage({ homeId }) {
   const monitor = useRef(null);
   const audioCoordinator = useRef(null);
   stateRef.current = state;
+
+  if (!alarmAudio.current) alarmAudio.current = new AlarmAudioPlayer();
 
   if (!monitor.current) {
     monitor.current = new AngerMonitor({
@@ -142,25 +146,32 @@ export default function TvPlayerPage({ homeId }) {
     prepared: prepared.current,
     uiState: stateRef.current,
     requestId: currentPlayback.current?.requestId || null,
-    youtubeState: player.current?.getPlayerState?.(),
+    youtubeState: currentPlayback.current?.kind === 'audio'
+      ? 1 : player.current?.getPlayerState?.(),
     detection: audioCoordinator.current?.snapshot(),
   }), []);
+
+  const stopPlaybackMedia = useCallback((playback) => {
+    if (playback?.kind === 'audio') alarmAudio.current?.stop();
+    else player.current?.stopVideo?.();
+  }, []);
 
   const finishLocalPlayback = useCallback((playback) => {
     if (!playback || currentPlayback.current?.requestId !== playback.requestId) return;
     currentPlayback.current = null;
     send({ type: 'ENDED', request_id: playback.requestId }, playback.socket);
-    player.current?.stopVideo?.();
+    stopPlaybackMedia(playback);
     audioCoordinator.current?.afterPlayback();
     setState(TV_PLAYER_STATE.ENDED);
     window.setTimeout(() => {
       if (mounted.current && prepared.current) announceReady(playback.socket);
     }, 150);
-  }, [announceReady, send]);
+  }, [announceReady, send, stopPlaybackMedia]);
 
   const onYouTubeState = useCallback((event) => {
     const playback = currentPlayback.current;
-    if (event.data === window.YT?.PlayerState?.PLAYING && playback) {
+    if (playback?.kind !== 'youtube') return;
+    if (event.data === window.YT?.PlayerState?.PLAYING) {
       setState(TV_PLAYER_STATE.PLAYING);
       send({ type: 'PLAYING', request_id: playback.requestId }, playback.socket);
     } else if (event.data === window.YT?.PlayerState?.ENDED && playback) {
@@ -173,6 +184,7 @@ export default function TvPlayerPage({ homeId }) {
       send({ type: 'FAILED', request_id: failed.requestId, code }, failed.socket);
       send({ type: 'NOT_READY' }, failed.socket);
     }
+    stopPlaybackMedia(failed);
     currentPlayback.current = null;
     audioCoordinator.current?.afterPlayback();
     setDebugInfo((current) => ({ ...current, error: code }));
@@ -183,7 +195,7 @@ export default function TvPlayerPage({ homeId }) {
       setMessage('');
       announceReady(failed?.socket);
     }, 1_600);
-  }, [announceReady, send]);
+  }, [announceReady, send, stopPlaybackMedia]);
 
   const handleSocketMessage = useCallback((event, sourceSocket, generation) => {
     let command;
@@ -249,16 +261,17 @@ export default function TvPlayerPage({ homeId }) {
         return;
       }
       currentPlayback.current = null;
-      player.current?.stopVideo?.();
+      stopPlaybackMedia(playback);
       audioCoordinator.current?.afterPlayback();
       send({ type: 'STOPPED', request_id: command.request_id }, sourceSocket);
       setState(TV_PLAYER_STATE.ENDED);
       announceReady(sourceSocket);
       return;
     }
-    if (command.type !== 'PLAY') return;
+    if (command.type !== 'PLAY' && command.type !== 'PLAY_AUDIO') return;
     const active = currentPlayback.current;
-    const decision = decidePlayCommand({
+    const decide = command.type === 'PLAY_AUDIO' ? decideAudioCommand : decidePlayCommand;
+    const decision = decide({
       message: command, homeId, state: stateRef.current,
       currentRequestId: active?.requestId || null, guard: guard.current,
     });
@@ -267,13 +280,31 @@ export default function TvPlayerPage({ homeId }) {
       send({ type: 'FAILED', request_id: command.request_id, code: decision.code }, sourceSocket);
       return;
     }
-    const playback = { requestId: command.request_id, socket: sourceSocket, generation };
+    const playback = {
+      requestId: command.request_id, socket: sourceSocket, generation,
+      kind: command.type === 'PLAY_AUDIO' ? 'audio' : 'youtube',
+    };
     audioCoordinator.current?.beforePlayback();
     currentPlayback.current = playback;
     setDebugInfo((current) => ({
-      ...current, requestId: command.request_id, videoId: command.video_id, error: '-',
+      ...current, requestId: command.request_id,
+      videoId: command.type === 'PLAY' ? command.video_id : 'ALARM_AUDIO', error: '-',
     }));
     setState(TV_PLAYER_STATE.CONNECTING);
+    if (playback.kind === 'audio') {
+      void alarmAudio.current.play({
+        audio: command.audio,
+        mimeType: command.mime_type,
+        onPlaying: () => {
+          if (currentPlayback.current?.requestId !== playback.requestId) return;
+          setState(TV_PLAYER_STATE.PLAYING);
+          send({ type: 'PLAYING', request_id: playback.requestId }, playback.socket);
+        },
+        onEnded: () => finishLocalPlayback(playback),
+        onError: (code) => failPlayback(code, playback),
+      });
+      return;
+    }
     try {
       player.current.unMute?.();
       player.current.setVolume?.(100);
@@ -282,7 +313,8 @@ export default function TvPlayerPage({ homeId }) {
     } catch {
       failPlayback('PLAYBACK_FAILED', playback);
     }
-  }, [announceReady, failPlayback, finishLocalPlayback, heartbeatSnapshot, homeId, send]);
+  }, [announceReady, failPlayback, finishLocalPlayback, heartbeatSnapshot, homeId, send,
+    stopPlaybackMedia]);
   handleSocketMessageRef.current = handleSocketMessage;
 
   const ensureSocketManager = useCallback(() => {
@@ -319,8 +351,8 @@ export default function TvPlayerPage({ homeId }) {
         if (event?.code === 4001) {
           socketManager.current?.cancelReconnect();
           if (currentPlayback.current?.socket === closedSocket) {
+            stopPlaybackMedia(currentPlayback.current);
             currentPlayback.current = null;
-            player.current?.stopVideo?.();
           }
           prepared.current = false;
           audioCoordinator.current?.dispose();
@@ -335,7 +367,7 @@ export default function TvPlayerPage({ homeId }) {
       },
     });
     return socketManager.current;
-  }, [announceReady, finishLocalPlayback, heartbeatSnapshot, homeId, send]);
+  }, [announceReady, finishLocalPlayback, heartbeatSnapshot, homeId, send, stopPlaybackMedia]);
 
   const connectSocket = useCallback(() => ensureSocketManager().connect(), [ensureSocketManager]);
   connectSocketRef.current = connectSocket;
@@ -359,7 +391,7 @@ export default function TvPlayerPage({ homeId }) {
         setPaired(true);
       }
       const [YT, webSocket] = await Promise.all([
-        loadYouTubeApi(), connectSocket(), microphonePromise,
+        loadYouTubeApi(), connectSocket(), microphonePromise, alarmAudio.current.prepare(),
       ]);
       if (!player.current) {
         player.current = await createYouTubePlayer(YT, 'nulbom-tv-player', {
@@ -390,6 +422,7 @@ export default function TvPlayerPage({ homeId }) {
       wakeLock.current?.release?.();
       player.current?.destroy?.();
       player.current = null;
+      alarmAudio.current?.dispose();
       audioCoordinator.current?.dispose();
     };
   }, [homeId]);

@@ -39,6 +39,16 @@ export function loadConfig(env = process.env) {
     playbackCommandTtlMs: positiveInteger(
       env.PLAYBACK_COMMAND_TTL_MS, 15_000, 'PLAYBACK_COMMAND_TTL_MS', 120_000,
     ),
+    playbackAudioCompletionTimeoutMs: positiveInteger(
+      env.PLAYBACK_AUDIO_COMPLETION_TIMEOUT_MS,
+      120_000,
+      'PLAYBACK_AUDIO_COMPLETION_TIMEOUT_MS',
+      300_000,
+    ),
+    alarmAudioMaxBytes: positiveInteger(
+      env.ALARM_AUDIO_MAX_BYTES, 1_048_576, 'ALARM_AUDIO_MAX_BYTES', 1_048_576,
+    ),
+    playbackInternalToken: env.PLAYBACK_INTERNAL_TOKEN || '',
     playerPairingCode: env.PLAYER_PAIRING_CODE || '',
     playerSessionSecret: env.PLAYER_SESSION_SECRET || '',
     playerSessionTtlSeconds: positiveInteger(

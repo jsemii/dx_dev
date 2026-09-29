@@ -15,6 +15,8 @@ const BUSY_PLAYER_STATES = new Set([
 ]);
 const READY_PLAYER_STATES = new Set(['READY', 'ENDED']);
 const ACTIVE_DETECTION_STATES = new Set(['DETECTING', 'RECORDING', 'ANALYZING']);
+export const ALARM_AUDIO_MIME_TYPE = 'audio/mpeg';
+export const DEFAULT_MAX_ALARM_AUDIO_BYTES = 1_048_576;
 
 function send(socket, payload) {
   if (socket.readyState !== OPEN) return false;
@@ -25,11 +27,13 @@ function send(socket, payload) {
 export class PlaybackGateway {
   constructor({ ackTimeoutMs = 5_000, commandTtlMs = 15_000, now = Date.now,
     setTimer = setTimeout, clearTimer = clearTimeout,
+    audioCompletionTimeoutMs = 120_000,
     connectionTimeoutMs = PLAYER_CONNECTION_TIMEOUT_MS,
     stateHeartbeatTimeoutMs = PLAYER_STATE_HEARTBEAT_TIMEOUT_MS,
     logger = {} } = {}) {
     this.ackTimeoutMs = ackTimeoutMs;
     this.commandTtlMs = commandTtlMs;
+    this.audioCompletionTimeoutMs = audioCompletionTimeoutMs;
     this.connectionTimeoutMs = connectionTimeoutMs;
     this.stateHeartbeatTimeoutMs = stateHeartbeatTimeoutMs;
     this.now = now;
@@ -67,6 +71,7 @@ export class PlaybackGateway {
       busy: false,
       currentRequestId: null,
       pendingAck: null,
+      pendingCompletion: null,
       pendingStop: null,
       pendingDetection: null,
       detectionState: 'PREPARING',
@@ -77,6 +82,8 @@ export class PlaybackGateway {
       lastPongAt: this.now(),
       lastStateHeartbeatAt: null,
       playStartedAt: null,
+      playAcknowledgedAt: null,
+      playKind: null,
     };
     const connections = this.connections.get(homeId) || new Set();
     connections.add(player);
@@ -92,6 +99,13 @@ export class PlaybackGateway {
       this.clearTimer(player.pendingAck.timer);
       player.pendingAck.reject(error);
       player.pendingAck = null;
+    }
+    if (player.pendingCompletion) {
+      this.clearTimer(player.pendingCompletion.timer);
+      player.pendingCompletion.resolve({
+        status: 'FAILED', endedAt: this.now(), failureCode: error?.code || 'PLAYBACK_FAILED',
+      });
+      player.pendingCompletion = null;
     }
     if (player.pendingStop) {
       this.clearTimer(player.pendingStop.timer);
@@ -116,6 +130,8 @@ export class PlaybackGateway {
     player.currentRequestId = null;
     player.lastStateHeartbeatAt = null;
     player.playStartedAt = null;
+    player.playAcknowledgedAt = null;
+    player.playKind = null;
     player.detectionState = 'OFFLINE';
     player.detectionRequested = false;
     player.microphoneReady = false;
@@ -144,6 +160,8 @@ export class PlaybackGateway {
     player.currentRequestId = null;
     player.lastStateHeartbeatAt = this.now();
     player.playStartedAt = null;
+    player.playAcknowledgedAt = null;
+    player.playKind = null;
     this.logEvent('READY', player);
     if (previous && previous !== player) {
       this.retire(previous, unavailable(
@@ -171,8 +189,9 @@ export class PlaybackGateway {
       && this.isConnected(player);
   }
 
-  finishPlayback(player) {
+  finishPlayback(player, completionStatus = 'COMPLETED', failureCode = null) {
     const requestId = player.currentRequestId;
+    const endedAt = this.now();
     if (player.pendingAck) {
       this.clearTimer(player.pendingAck.timer);
       player.pendingAck.resolve({ requestId });
@@ -183,11 +202,20 @@ export class PlaybackGateway {
       player.pendingStop.resolve({ stopped: true, ready: true });
       player.pendingStop = null;
     }
+    if (player.pendingCompletion) {
+      this.clearTimer(player.pendingCompletion.timer);
+      player.pendingCompletion.resolve({
+        status: completionStatus, endedAt, failureCode,
+      });
+      player.pendingCompletion = null;
+    }
     player.busy = false;
     player.ready = true;
     player.currentRequestId = null;
     player.lastStateHeartbeatAt = this.now();
     player.playStartedAt = null;
+    player.playAcknowledgedAt = null;
+    player.playKind = null;
     return requestId;
   }
 
@@ -204,9 +232,12 @@ export class PlaybackGateway {
     player.ready = false;
     player.lastStateHeartbeatAt = this.now();
     player.playStartedAt ??= this.now();
+    player.playAcknowledgedAt ??= this.now();
     if (player.pendingAck) {
       this.clearTimer(player.pendingAck.timer);
-      player.pendingAck.resolve({ requestId });
+      player.pendingAck.resolve(player.playKind === 'audio'
+        ? { requestId, startedAt: player.playAcknowledgedAt }
+        : { requestId });
       player.pendingAck = null;
     }
     if (changed || source === 'ACK' || source.startsWith('REGISTER')) {
@@ -387,7 +418,12 @@ export class PlaybackGateway {
     }
     if (message.type === 'ENDED' || message.type === 'STOPPED') {
       const elapsedMs = player.playStartedAt ? this.now() - player.playStartedAt : 0;
-      const requestId = this.finishPlayback(player);
+      const stopped = message.type === 'STOPPED';
+      const requestId = this.finishPlayback(
+        player,
+        stopped && player.playKind === 'audio' ? 'FAILED' : 'COMPLETED',
+        stopped && player.playKind === 'audio' ? 'AUDIO_STOPPED' : null,
+      );
       this.logEvent(message.type, player, { requestId, elapsedMs });
       return;
     }
@@ -403,6 +439,8 @@ export class PlaybackGateway {
       player.ready = message.code === 'PLAYER_BUSY';
       player.currentRequestId = null;
       player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
       player.lastStateHeartbeatAt = this.now();
     }
   }
@@ -467,6 +505,8 @@ export class PlaybackGateway {
     player.busy = true;
     player.currentRequestId = requestId;
     player.playStartedAt = issuedAt;
+    player.playAcknowledgedAt = null;
+    player.playKind = 'youtube';
     player.lastStateHeartbeatAt = issuedAt;
     player.detectionState = 'PLAYING';
     this.logEvent('PLAY', player, { requestId, elapsedMs: 0 });
@@ -474,6 +514,8 @@ export class PlaybackGateway {
       player.currentRequestId = null;
       player.busy = false;
       player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
       player.lastStateHeartbeatAt = null;
       throw unavailable('PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.');
     }
@@ -484,6 +526,8 @@ export class PlaybackGateway {
         player.ready = false;
         player.currentRequestId = null;
         player.playStartedAt = null;
+        player.playAcknowledgedAt = null;
+        player.playKind = null;
         player.lastStateHeartbeatAt = null;
         this.logEvent('TIMEOUT', player, {
           requestId, reason: 'PLAYING_ACK_TIMEOUT', elapsedMs: this.ackTimeoutMs,
@@ -493,6 +537,115 @@ export class PlaybackGateway {
       timer?.unref?.();
       player.pendingAck = { resolve, reject, timer };
     });
+  }
+
+  async requestAudioPlayback({ homeId, alarmId, audio, mimeType, requestId = randomUUID(),
+    maxBytes = DEFAULT_MAX_ALARM_AUDIO_BYTES }) {
+    if (!UUID.test(String(alarmId || ''))) {
+      throw conflict('INVALID_ALARM_ID', '알림 ID 형식이 올바르지 않습니다.');
+    }
+    if (!UUID.test(String(requestId || ''))) {
+      throw conflict('INVALID_REQUEST_ID', '요청 ID 형식이 올바르지 않습니다.');
+    }
+    if (this.seenRequestIds.has(requestId)) {
+      throw conflict('DUPLICATE_PLAYBACK_REQUEST', '이미 처리한 재생 요청입니다.');
+    }
+    if (mimeType !== ALARM_AUDIO_MIME_TYPE) {
+      throw conflict('INVALID_AUDIO_MIME', '지원하지 않는 알림 음성 형식입니다.');
+    }
+    if (!Buffer.isBuffer(audio) || audio.length < 1 || audio.length > maxBytes) {
+      throw conflict(audio?.length > maxBytes ? 'AUDIO_TOO_LARGE' : 'INVALID_AUDIO_DATA',
+        '알림 음성 데이터가 올바르지 않습니다.');
+    }
+    await this.assertReady(homeId);
+    const player = this.players.get(homeId);
+    if (!player || !this.isActive(player) || !player.ready || player.busy) {
+      throw conflict('PLAYBACK_NOT_READY', '생활자 재생 화면을 먼저 준비해 주세요.');
+    }
+
+    const issuedAt = this.now();
+    const command = {
+      type: 'PLAY_AUDIO', request_id: requestId, home_id: homeId, alarm_id: alarmId,
+      audio: audio.toString('base64'), mime_type: mimeType,
+      issued_at: new Date(issuedAt).toISOString(),
+      expires_at: new Date(issuedAt + this.commandTtlMs).toISOString(),
+    };
+    this.seenRequestIds.add(requestId);
+    player.ready = false;
+    player.busy = true;
+    player.currentRequestId = requestId;
+    player.playStartedAt = issuedAt;
+    player.playAcknowledgedAt = null;
+    player.playKind = 'audio';
+    player.lastStateHeartbeatAt = issuedAt;
+    player.detectionState = 'PLAYING';
+    this.logEvent('PLAY_AUDIO', player, { requestId, elapsedMs: 0 });
+
+    let resolveCompletion;
+    const completionPromise = new Promise((resolve) => { resolveCompletion = resolve; });
+    const completionTimer = this.setTimer(() => {
+      if (player.pendingCompletion?.requestId !== requestId) return;
+      player.pendingCompletion = null;
+      resolveCompletion({
+        status: 'FAILED', endedAt: this.now(), failureCode: 'AUDIO_COMPLETION_TIMEOUT',
+      });
+      player.busy = false;
+      player.ready = false;
+      player.currentRequestId = null;
+      player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
+      player.socket.close(PLAYER_STATE_TIMEOUT_CLOSE_CODE, 'audio completion timeout');
+    }, this.audioCompletionTimeoutMs);
+    completionTimer?.unref?.();
+    player.pendingCompletion = { requestId, resolve: resolveCompletion, timer: completionTimer };
+
+    let resolveStarted;
+    let rejectStarted;
+    const startedPromise = new Promise((resolve, reject) => {
+      resolveStarted = resolve;
+      rejectStarted = reject;
+    });
+    const ackTimer = this.setTimer(() => {
+      if (player.pendingAck?.requestId !== requestId) return;
+      player.pendingAck = null;
+      const error = unavailable('PLAYBACK_ACK_TIMEOUT', '생활자 화면의 재생 시작을 확인하지 못했습니다.');
+      rejectStarted(error);
+      if (player.pendingCompletion?.requestId === requestId) {
+        this.clearTimer(player.pendingCompletion.timer);
+        player.pendingCompletion = null;
+        resolveCompletion({ status: 'FAILED', endedAt: this.now(), failureCode: error.code });
+      }
+      player.busy = false;
+      player.ready = false;
+      player.currentRequestId = null;
+      player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
+    }, this.ackTimeoutMs);
+    ackTimer?.unref?.();
+    player.pendingAck = { requestId, resolve: resolveStarted, reject: rejectStarted, timer: ackTimer };
+    if (!send(player.socket, command)) {
+      const error = unavailable('PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.');
+      this.rejectPending(player, error);
+      player.busy = false;
+      player.ready = false;
+      player.currentRequestId = null;
+      player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
+      await startedPromise.catch(() => {});
+      throw error;
+    }
+
+    const started = await startedPromise;
+    const completion = await completionPromise;
+    return {
+      requestId, status: completion.status,
+      startedAt: new Date(started.startedAt).toISOString(),
+      endedAt: new Date(completion.endedAt).toISOString(),
+      failureCode: completion.failureCode,
+    };
   }
 
   async requestDetectionCommand(homeId, type) {
@@ -599,6 +752,8 @@ export class PlaybackGateway {
       player.ready = false;
       player.currentRequestId = null;
       player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
       player.lastStateHeartbeatAt = null;
       this.logEvent('TIMEOUT', player, {
         requestId, reason: 'STOPPED_ACK_TIMEOUT', elapsedMs: this.ackTimeoutMs,
@@ -617,6 +772,8 @@ export class PlaybackGateway {
       player.ready = false;
       player.currentRequestId = null;
       player.playStartedAt = null;
+      player.playAcknowledgedAt = null;
+      player.playKind = null;
       player.lastStateHeartbeatAt = null;
       throw unavailable('PLAYBACK_DISCONNECTED', '생활자 재생 화면 연결이 끊어졌습니다.');
     }
