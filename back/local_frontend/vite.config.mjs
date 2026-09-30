@@ -19,8 +19,8 @@ const localNeulbomData = path.join(bridgeDir, 'LocalNeulbomData.mjs');
 const teamNeulbomPage = path.join(teamFrontend, 'src/NeulbomPage.jsx');
 const expandedApplianceDefault = "  const [expandedDevices, setExpandedDevices] = useState(() => new Set(['purifier', 'refrigerator', 'tv']));";
 const collapsedApplianceDefault = '  const [expandedDevices, setExpandedDevices] = useState(() => new Set());';
-const careCardSignature = 'function CareTodayCard({ overview, recentCare, onRefresh }) {';
-const connectedCareCardSignature = 'function CareTodayCard({ overview, recentCare, onRefresh, ariaLabel }) {';
+const careCardSignature = 'function CareTodayCard({ overview, recentCare, onRefresh, onEmergency }) {';
+const connectedCareCardSignature = 'function CareTodayCard({ overview, recentCare, onRefresh, onEmergency, ariaLabel }) {';
 const careAriaLabel = 'aria-label="오늘의 돌봄 상태"';
 const connectedCareAriaLabel = 'aria-label={ariaLabel}';
 const neulbomPropsStart = `export default function NeulbomPage({
@@ -31,8 +31,19 @@ const connectedNeulbomPropsStart = `export default function NeulbomPage({
   careStatusAriaLabel,`;
 const applianceSectionCall = '<ApplianceSection devices={applianceUsage} />';
 const connectedApplianceSectionCall = '<ApplianceSection key={applianceUsageResetKey} devices={applianceUsage} />';
-const careCardCall = '<CareTodayCard overview={careOverview} recentCare={recentCare} onRefresh={onRefreshCare} />';
-const connectedCareCardCall = '<CareTodayCard overview={careOverview} recentCare={recentCare} onRefresh={onRefreshCare} ariaLabel={careStatusAriaLabel} />';
+const careCardCall = `<CareTodayCard
+                overview={displayedCareOverview}
+                recentCare={recentCare}
+                onRefresh={onRefreshCare}
+                onEmergency={() => setCareDemoPhase('alert')}
+              />`;
+const connectedCareCardCall = `<CareTodayCard
+                overview={displayedCareOverview}
+                recentCare={recentCare}
+                onRefresh={onRefreshCare}
+                onEmergency={() => setCareDemoPhase('alert')}
+                ariaLabel={careStatusAriaLabel}
+              />`;
 
 // Fail visibly after an upstream change instead of silently falling back to mock data.
 if (!readFileSync(appFile, 'utf8').includes("import NeulbomPage from './NeulbomPage.jsx'")) {
