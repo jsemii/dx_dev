@@ -26,7 +26,13 @@ function normalizeSettings(row) {
   };
 }
 
-async function request(path, options = {}) {
+function normalizeInternalAlarmId(id) {
+  const alarmId = typeof id === 'string' ? INTERNAL_ALARM_ID_PATTERN.exec(id)?.[1] : undefined;
+  if (!alarmId) throw new Error('알림 ID가 올바르지 않습니다.');
+  return alarmId;
+}
+
+async function request(path, options = {}, expectedStatus) {
   let response;
   try {
     response = await fetch(path, options);
@@ -40,6 +46,9 @@ async function request(path, options = {}) {
       && /^(알림|가정 ID|올바른 JSON)/.test(body.message)
       ? body.message : '서버 응답을 확인해주세요.';
     throw new Error(`알림 요청 실패 (HTTP ${response.status}): ${message}`);
+  }
+  if (expectedStatus !== undefined && response.status !== expectedStatus) {
+    throw new Error(`알림 요청 실패 (HTTP ${response.status}): 서버 응답을 확인해주세요.`);
   }
   return body;
 }
@@ -75,8 +84,7 @@ export async function addAlarm(type, { name, time }) {
 }
 
 export async function setAlarmEnabled(id, enabled) {
-  const alarmId = typeof id === 'string' ? INTERNAL_ALARM_ID_PATTERN.exec(id)?.[1] : undefined;
-  if (!alarmId) throw new Error('알림 ID가 올바르지 않습니다.');
+  const alarmId = normalizeInternalAlarmId(id);
   const row = await request(`/api/alarms/${alarmId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -85,6 +93,26 @@ export async function setAlarmEnabled(id, enabled) {
   const alarm = normalizeAlarm(row);
   if (alarm.id !== id || alarm.enabled !== enabled) throw new Error('알림 저장 결과가 올바르지 않습니다.');
   return alarm;
+}
+
+export async function deleteAlarm(id) {
+  const alarmId = normalizeInternalAlarmId(id);
+  const params = new URLSearchParams({ home_id: DEFAULT_HOME_ID });
+  await request(`/api/alarms/${alarmId}?${params}`, { method: 'DELETE' }, 204);
+}
+
+export function removeAlarmFromSettings(settings, type, id) {
+  if (!['meal', 'medication'].includes(type)) throw new Error('알림 종류가 올바르지 않습니다.');
+  return {
+    ...settings,
+    sections: {
+      ...settings.sections,
+      [type]: {
+        ...settings.sections[type],
+        reminders: settings.sections[type].reminders.filter((item) => item.id !== id),
+      },
+    },
+  };
 }
 
 export function settingsFromAlarms(alarms, preferences) {

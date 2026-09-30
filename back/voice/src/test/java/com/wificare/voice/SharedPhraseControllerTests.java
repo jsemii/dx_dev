@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -19,6 +21,7 @@ import com.wificare.voice.controller.ApiExceptionHandler;
 import com.wificare.voice.controller.SharedPhraseController;
 import com.wificare.voice.dto.SharedPhrase;
 import com.wificare.voice.exception.DuplicateSharedPhraseException;
+import com.wificare.voice.exception.SharedPhraseNotFoundException;
 import com.wificare.voice.exception.VoiceStoreUnavailableException;
 import com.wificare.voice.service.VoiceProfileRepository;
 import org.junit.jupiter.api.Test;
@@ -106,5 +109,59 @@ class SharedPhraseControllerTests {
         mvc.perform(get("/api/voice/shared-phrases").param("home_id", "home_23"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().json("{\"message\":\"목소리 저장 DB에 연결하지 못했습니다.\"}"));
+    }
+
+    @Test
+    void updateTrimsTextAndDeleteUsesBothResidentAndPhraseId() {
+        Instant updatedAt = Instant.parse("2026-09-30T05:00:00Z");
+        SharedPhrase updated = new SharedPhrase(PHRASE_ID, "수정 문구", CREATED_AT, updatedAt);
+        when(profiles.updateSharedPhrase("home_23", PHRASE_ID, "수정 문구")).thenReturn(updated);
+
+        assertThat(controller.update(PHRASE_ID.toString(),
+                new SharedPhraseController.UpdateRequest("home_23", "  수정 문구  "))).isEqualTo(updated);
+        assertThat(controller.delete(PHRASE_ID.toString(), "home_23").getStatusCode().value()).isEqualTo(204);
+
+        verify(profiles).updateSharedPhrase("home_23", PHRASE_ID, "수정 문구");
+        verify(profiles).deleteSharedPhrase("home_23", PHRASE_ID);
+    }
+
+    @Test
+    void updateRejectsDefaultsInvalidTextAndInvalidUuidBeforeDatabaseAccess() {
+        assertThatThrownBy(() -> controller.update(PHRASE_ID.toString(),
+                new SharedPhraseController.UpdateRequest("home_23", "밥 먹어요")))
+                .isInstanceOf(DuplicateSharedPhraseException.class);
+        assertThatThrownBy(() -> controller.update(PHRASE_ID.toString(),
+                new SharedPhraseController.UpdateRequest("home_23", " ")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> controller.delete("not-a-uuid", "home_23"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(profiles);
+    }
+
+    @Test
+    void httpUpdateReturnsFinalObjectAndDeleteMapsMissingOwnershipToNotFound() throws Exception {
+        Instant updatedAt = Instant.parse("2026-09-30T05:00:00Z");
+        when(profiles.updateSharedPhrase("home_23", PHRASE_ID, "수정 문구"))
+                .thenReturn(new SharedPhrase(PHRASE_ID, "수정 문구", CREATED_AT, updatedAt));
+        org.mockito.Mockito.doThrow(new SharedPhraseNotFoundException())
+                .when(profiles).deleteSharedPhrase("other_home", PHRASE_ID);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new ApiExceptionHandler()).build();
+
+        mvc.perform(patch("/api/voice/shared-phrases/{phraseId}", PHRASE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"home_id\":\"home_23\",\"text\":\"수정 문구\"}"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"phrase_id":"11111111-1111-4111-8111-111111111111",
+                         "text":"수정 문구","created_at":"2026-09-26T05:00:00Z",
+                         "updated_at":"2026-09-30T05:00:00Z"}
+                        """));
+        mvc.perform(delete("/api/voice/shared-phrases/{phraseId}", PHRASE_ID)
+                        .param("home_id", "other_home"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().json("{\"message\":\"등록된 문구를 찾지 못했습니다.\"}"));
+        mvc.perform(delete("/api/voice/shared-phrases/not-a-uuid").param("home_id", "home_23"))
+                .andExpect(status().isBadRequest());
     }
 }

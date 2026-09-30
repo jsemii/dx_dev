@@ -9,19 +9,23 @@ function replaceOnce(source, before, after) {
 export function connectMealAlarmPage(source) {
   let result = source;
   result = replaceOnce(result,
-    'function ReminderSection({ sectionKey, section, onToggleSection, onToggleReminder, onAdd }) {',
-    'function ReminderSection({ sectionKey, section, onToggleSection, onToggleReminder, onAdd, pendingIds }) {');
-  result = replaceOnce(result, 'disabled={!section.enabled}\n                size="small"',
-    'disabled={!section.enabled || pendingIds.includes(reminder.id)}\n                size="small"');
-  result = replaceOnce(result,
     'function ReminderEditor({ category, onBack, onAdd }) {',
     'function ReminderEditor({ category, onBack, onAdd, isSaving, error }) {');
   result = replaceOnce(result,
     '      <div className="reminder-editor-bottom-action">\n        <button type="button" onClick={submit} disabled={!name.trim()}>추가하기</button>',
     '      {error && <p className="local-alarm-error local-alarm-editor-error" role="alert">{error}</p>}\n      <div className="reminder-editor-bottom-action">\n        <button type="button" onClick={submit} disabled={!name.trim() || isSaving}>{isSaving ? \'저장 중...\' : \'추가하기\'}</button>');
   result = replaceOnce(result,
-    'export default function MealMedicationCarePage({ onBack, settings, onSettingsChange, onReminderAdded }) {',
-    'export default function MealMedicationCarePage({ onBack, settings, onSettingsChange, onSaveReminder, onSetReminderEnabled, onClearError, isSaving, pendingIds, error }) {');
+    `export default function MealMedicationCarePage({
+  onBack,
+  settings,
+  onSettingsChange,
+  onReminderAdded,
+  onDeleteReminder,
+  pendingIds = [],
+  deletingIds = [],
+  interactionLocked = false,
+}) {`,
+    'export default function MealMedicationCarePage({ onBack, settings, onSettingsChange, onSaveReminder, onSetReminderEnabled, onDeleteReminder, onClearError, isSaving, pendingIds, deletingIds, interactionLocked, error }) {');
   result = replaceOnce(result,
     `  const toggleReminder = (sectionKey, reminderId, enabled) => {
     updateSection(sectionKey, (section) => ({
@@ -53,7 +57,7 @@ export function connectMealAlarmPage(source) {
     '<div className="meal-medication-content">',
     '<div className="meal-medication-content">\n        {error && <p className="local-alarm-error" role="alert">{error}</p>}');
   result = replaceOnce(result,
-    'onToggleReminder={toggleReminder}\n                onAdd={setEditingCategory}',
-    'onToggleReminder={toggleReminder}\n                pendingIds={pendingIds}\n                onAdd={(category) => { onClearError(); setEditingCategory(category); }}');
+    'onAdd={setEditingCategory}',
+    'onAdd={(category) => { onClearError(); setEditingCategory(category); }}');
   return result;
 }

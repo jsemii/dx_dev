@@ -72,6 +72,14 @@ class AlarmControllerTests {
     }
 
     @Test
+    void deletesOnlyTheRequestedAlarmAndHome() {
+        var response = controller.delete(FIRST_ID.toString(), "demo_solo_house009");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        verify(repository).delete(FIRST_ID, "demo_solo_house009");
+    }
+
+    @Test
     void formatsPostgresTimeAsHourAndMinute() {
         assertThat(AlarmValidation.displayTime(LocalTime.of(8, 30, 42))).isEqualTo("08:30");
         assertThat(AlarmValidation.time("00:00")).isEqualTo(LocalTime.MIDNIGHT);

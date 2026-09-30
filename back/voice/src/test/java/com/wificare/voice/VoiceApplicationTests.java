@@ -15,7 +15,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "elevenlabs.api-key=PUT_YOUR_ELEVENLABS_API_KEY_HERE")
+		properties = {
+				"elevenlabs.api-key=PUT_YOUR_ELEVENLABS_API_KEY_HERE",
+				"alarm.delivery.enabled=false"
+		})
 class VoiceApplicationTests {
 
 	private final HttpClient httpClient = HttpClient.newHttpClient();

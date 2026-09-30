@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, realpathSync } from 'node:fs';
 import {
-  addAlarm, getAlarmSettings, listAlarms, setAlarmEnabled, setAlarmSettings, settingsFromAlarms,
+  addAlarm, deleteAlarm, getAlarmSettings, listAlarms, removeAlarmFromSettings,
+  setAlarmEnabled, setAlarmSettings, settingsFromAlarms,
 } from './alarmApi.mjs';
 import { connectMealAlarmPage } from './mealAlarmTransform.mjs';
 import viteConfig from './vite.config.mjs';
@@ -19,12 +20,61 @@ test('meal page retains upstream layout but waits for API before updating', () =
   const transformed = connectMealAlarmPage(source);
   assert.match(transformed, /await onSaveReminder\(editingCategory, reminder\)/);
   assert.match(transformed, /onSetReminderEnabled\(sectionKey, reminderId, enabled\)/);
+  assert.match(transformed, /onDeleteReminder/);
+  assert.match(transformed, /deletingIds/);
+  assert.match(transformed, /interactionLocked/);
   assert.doesNotMatch(transformed, /checked=\{settings.enabled\}\s+disabled/);
   assert.doesNotMatch(transformed, /checked=\{section.enabled\}\s+disabled/);
   assert.doesNotMatch(transformed, /개별 알림만 저장됩니다/);
   assert.doesNotMatch(transformed, /전체 설정 미지원/);
   assert.match(transformed, /\{settings\.enabled \? '사용 중' : '사용 안함'\}/);
   assert.throws(() => connectMealAlarmPage('changed upstream'), /변경됐습니다/);
+});
+
+test('delete sends normalized alarm and home IDs and requires 204 before removal', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, method: options.method });
+    return new Response(null, { status: 204 });
+  };
+  try {
+    await deleteAlarm(`alarm-${mealAlarmId}`);
+    assert.deepEqual(calls, [{
+      url: `/api/alarms/${mealAlarmId}?home_id=home_23`, method: 'DELETE',
+    }]);
+    const settings = settingsFromAlarms([
+      { id: `alarm-${mealAlarmId}`, type: 'meal', name: '아침', time: '08:30', enabled: true },
+      { id: `alarm-${medicationAlarmId}`, type: 'medication', name: '약', time: '08:30', enabled: true },
+    ], { enabled: true, mealEnabled: true, medicationEnabled: true });
+    const removed = removeAlarmFromSettings(settings, 'meal', `alarm-${mealAlarmId}`);
+    assert.deepEqual(removed.sections.meal.reminders, []);
+    assert.equal(removed.sections.medication.reminders.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('failed, missing and unexpected delete responses preserve the existing alarm', async () => {
+  const originalFetch = globalThis.fetch;
+  const settings = settingsFromAlarms([row(mealAlarmId, 'meal')], {
+    enabled: true, mealEnabled: true, medicationEnabled: true,
+  });
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      message: '알림을 찾을 수 없습니다.',
+    }), { status: 404 });
+    await assert.rejects(deleteAlarm(`alarm-${mealAlarmId}`), /HTTP 404/);
+    assert.equal(settings.sections.meal.reminders.length, 1);
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }), { status: 200 });
+    await assert.rejects(deleteAlarm(`alarm-${mealAlarmId}`), /HTTP 200/);
+
+    globalThis.fetch = async () => { throw new TypeError('network'); };
+    await assert.rejects(deleteAlarm(`alarm-${mealAlarmId}`), /연결하지 못했어요/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('alarm route uses the voice backend and preserves LAN Host', () => {
@@ -140,6 +190,8 @@ test('invalid internal alarm IDs are rejected before a patch request', async () 
   try {
     await assert.rejects(setAlarmEnabled('alarm-9', false), /알림 ID가 올바르지 않습니다/);
     await assert.rejects(setAlarmEnabled('alarm-not-a-uuid', false), /알림 ID가 올바르지 않습니다/);
+    await assert.rejects(deleteAlarm('alarm-9'), /알림 ID가 올바르지 않습니다/);
+    await assert.rejects(deleteAlarm('alarm-not-a-uuid'), /알림 ID가 올바르지 않습니다/);
     assert.equal(called, false);
   } finally {
     globalThis.fetch = originalFetch;

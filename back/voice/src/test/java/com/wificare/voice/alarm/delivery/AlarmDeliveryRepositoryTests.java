@@ -114,6 +114,10 @@ class AlarmDeliveryRepositoryTests {
         String migration = Files.readString(Path.of("db/create_alarm_delivery.sql"));
         assertThat(migration).contains("UNIQUE (alarm_id, scheduled_for)");
         assertThat(migration).contains("CREATE UNIQUE INDEX IF NOT EXISTS care_event_alarm_delivery_key");
+        assertThat(migration).contains(
+                "alarm_id uuid NOT NULL REFERENCES public.alarm(alarm_id) ON DELETE CASCADE");
+        assertThat(migration).contains("REFERENCES public.alarm_delivery(delivery_id)");
+        assertThat(migration).contains("ON DELETE SET NULL");
         assertThat(migration).contains("timestamptz NOT NULL");
         assertThat(migration).contains("PENDING", "GENERATING", "SENT", "PLAYING", "COMPLETED", "FAILED");
     }

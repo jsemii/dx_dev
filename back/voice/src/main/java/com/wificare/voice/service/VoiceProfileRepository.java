@@ -15,6 +15,7 @@ import com.wificare.voice.db.VoiceDatabase;
 import com.wificare.voice.dto.RegisteredVoice;
 import com.wificare.voice.dto.SharedPhrase;
 import com.wificare.voice.exception.DuplicateSharedPhraseException;
+import com.wificare.voice.exception.SharedPhraseNotFoundException;
 import com.wificare.voice.exception.VoiceNotFoundException;
 import com.wificare.voice.exception.VoiceStoreUnavailableException;
 import org.slf4j.Logger;
@@ -127,7 +128,8 @@ public class VoiceProfileRepository {
 
     public List<SharedPhrase> listSharedPhrases(String homeId) {
         String sql = "SELECT (entry->>'phrase_id')::uuid AS phrase_id, entry->>'text' AS text, "
-                + "(entry->>'created_at')::timestamptz AS created_at "
+                + "(entry->>'created_at')::timestamptz AS created_at, "
+                + "(entry->>'updated_at')::timestamptz AS updated_at "
                 + "FROM public.voice_profile profile "
                 + "CROSS JOIN LATERAL jsonb_array_elements(profile.shared_phrases) "
                 + "WITH ORDINALITY entries(entry, ordinal) "
@@ -161,7 +163,8 @@ public class VoiceProfileRepository {
                 + "WHERE existing->>'text' = (SELECT phrase_text FROM input)) "
                 + "RETURNING shared_phrases"
                 + ") SELECT (entry->>'phrase_id')::uuid AS phrase_id, entry->>'text' AS text, "
-                + "(entry->>'created_at')::timestamptz AS created_at FROM upserted "
+                + "(entry->>'created_at')::timestamptz AS created_at, "
+                + "(entry->>'updated_at')::timestamptz AS updated_at FROM upserted "
                 + "CROSS JOIN LATERAL jsonb_array_elements(shared_phrases) entry "
                 + "WHERE (entry->>'phrase_id')::uuid = (SELECT phrase_id FROM input)";
         try (Connection connection = database.connect(); PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -175,6 +178,98 @@ public class VoiceProfileRepository {
             }
         } catch (SQLException | IllegalStateException error) {
             throw unavailable(error);
+        }
+    }
+
+    public SharedPhrase updateSharedPhrase(String homeId, UUID phraseId, String text) {
+        try (Connection connection = database.connect()) {
+            connection.setAutoCommit(false);
+            try {
+                lockAndCheckSharedPhrase(connection, homeId, phraseId, text, true);
+                SharedPhrase updated = updateLockedSharedPhrase(connection, homeId, phraseId, text);
+                connection.commit();
+                return updated;
+            } catch (SQLException | RuntimeException error) {
+                rollbackQuietly(connection);
+                throw error;
+            }
+        } catch (SQLException | IllegalStateException error) {
+            throw unavailable(error);
+        }
+    }
+
+    public void deleteSharedPhrase(String homeId, UUID phraseId) {
+        try (Connection connection = database.connect()) {
+            connection.setAutoCommit(false);
+            try {
+                lockAndCheckSharedPhrase(connection, homeId, phraseId, null, false);
+                String sql = "UPDATE public.voice_profile profile SET shared_phrases = ("
+                        + "SELECT COALESCE(jsonb_agg(entry ORDER BY ordinal), '[]'::jsonb) "
+                        + "FROM jsonb_array_elements(profile.shared_phrases) WITH ORDINALITY entries(entry, ordinal) "
+                        + "WHERE entry->>'phrase_id' <> ?) "
+                        + "WHERE profile.resident_thinq_id = ?";
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setString(1, phraseId.toString());
+                    statement.setString(2, homeId);
+                    if (statement.executeUpdate() != 1) throw new SharedPhraseNotFoundException();
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException error) {
+                rollbackQuietly(connection);
+                throw error;
+            }
+        } catch (SQLException | IllegalStateException error) {
+            throw unavailable(error);
+        }
+    }
+
+    private void lockAndCheckSharedPhrase(Connection connection, String homeId, UUID phraseId,
+            String text, boolean checkDuplicate) throws SQLException {
+        String duplicateCheck = checkDuplicate ? "EXISTS (SELECT 1 FROM jsonb_array_elements(profile.shared_phrases) "
+                + "candidate WHERE candidate->>'text' = ? AND candidate->>'phrase_id' <> ?)" : "false";
+        String sql = "SELECT EXISTS (SELECT 1 FROM jsonb_array_elements(profile.shared_phrases) target "
+                + "WHERE target->>'phrase_id' = ?) AS owned, " + duplicateCheck + " AS duplicate "
+                + "FROM public.voice_profile profile WHERE profile.resident_thinq_id = ? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int parameter = 1;
+            statement.setString(parameter++, phraseId.toString());
+            if (checkDuplicate) {
+                statement.setString(parameter++, text);
+                statement.setString(parameter++, phraseId.toString());
+            }
+            statement.setString(parameter, homeId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next() || !result.getBoolean("owned")) throw new SharedPhraseNotFoundException();
+                if (result.getBoolean("duplicate")) throw new DuplicateSharedPhraseException();
+            }
+        }
+    }
+
+    private SharedPhrase updateLockedSharedPhrase(Connection connection, String homeId, UUID phraseId,
+            String text) throws SQLException {
+        Instant updatedAt = Instant.now();
+        String sql = "WITH updated AS ("
+                + "UPDATE public.voice_profile profile SET shared_phrases = ("
+                + "SELECT COALESCE(jsonb_agg(CASE WHEN entry->>'phrase_id' = ? THEN "
+                + "jsonb_set(jsonb_set(entry, '{text}', to_jsonb(CAST(? AS text)), true), "
+                + "'{updated_at}', to_jsonb(CAST(? AS text)), true) ELSE entry END ORDER BY ordinal), '[]'::jsonb) "
+                + "FROM jsonb_array_elements(profile.shared_phrases) WITH ORDINALITY entries(entry, ordinal)) "
+                + "WHERE profile.resident_thinq_id = ? RETURNING shared_phrases"
+                + ") SELECT (entry->>'phrase_id')::uuid AS phrase_id, entry->>'text' AS text, "
+                + "(entry->>'created_at')::timestamptz AS created_at, "
+                + "(entry->>'updated_at')::timestamptz AS updated_at FROM updated "
+                + "CROSS JOIN LATERAL jsonb_array_elements(shared_phrases) entry "
+                + "WHERE entry->>'phrase_id' = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, phraseId.toString());
+            statement.setString(2, text);
+            statement.setString(3, updatedAt.toString());
+            statement.setString(4, homeId);
+            statement.setString(5, phraseId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) throw new SharedPhraseNotFoundException();
+                return sharedPhrase(result);
+            }
         }
     }
 
@@ -394,8 +489,9 @@ public class VoiceProfileRepository {
     private static SharedPhrase sharedPhrase(ResultSet result) throws SQLException {
         Timestamp createdAt = result.getTimestamp("created_at");
         if (createdAt == null) throw new SQLException("Shared phrase creation time is missing", "22004");
+        Timestamp updatedAt = result.getTimestamp("updated_at");
         return new SharedPhrase(result.getObject("phrase_id", UUID.class), result.getString("text"),
-                createdAt.toInstant());
+                createdAt.toInstant(), updatedAt == null ? null : updatedAt.toInstant());
     }
 
     private static VoiceStoreUnavailableException unavailable(Exception error) {

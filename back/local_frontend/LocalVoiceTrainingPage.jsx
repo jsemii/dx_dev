@@ -5,10 +5,13 @@ import {
 } from '../../frontend/frontend/src/data/voiceTrainingData.js';
 import { DEFAULT_HOME_ID } from './bridgeData.mjs';
 import {
+  deleteSharedPhrase,
   generateOwnedTts,
   loadSharedPhrases,
   saveVoiceEdits,
   stageSharedPhrase,
+  updateSharedPhrase,
+  validateSharedPhraseEdit,
 } from './voicePhraseApi.mjs';
 import '../../frontend/frontend/src/voice-training.css';
 import './local-voice.css';
@@ -163,32 +166,99 @@ function ReviewStep({ seconds, isPlaying, onReplay, onRetry }) {
   );
 }
 
-function VoicePhraseList({ sharedPhrases, pendingPhrases, message, playingPhrase, playDisabled, addDisabled, onPlay, onAdd }) {
+function VoicePhraseList({
+  sharedPhrases,
+  pendingPhrases,
+  message,
+  playingPhrase,
+  playDisabled,
+  addDisabled,
+  onPlay,
+  onAdd,
+  onEditPhrase,
+  onDeletePhrase,
+  processingPhraseId,
+}) {
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const openMenuRef = useRef(null);
   const phrases = [
-    ...DEFAULT_VOICE_PHRASES.map((text) => ({ key: `default-${text}`, text })),
-    ...sharedPhrases.map((phrase) => ({ key: `shared-${phrase.phrase_id}`, text: phrase.text })),
-    ...pendingPhrases.map((text) => ({ key: `pending-${text}`, text })),
+    ...DEFAULT_VOICE_PHRASES.map((text) => ({ key: `default-${text}`, text, kind: 'default' })),
+    ...sharedPhrases.map((phrase) => ({
+      key: `shared-${phrase.phrase_id}`,
+      text: phrase.text,
+      kind: 'shared',
+      phraseId: phrase.phrase_id,
+      source: phrase,
+    })),
+    ...pendingPhrases.map((text) => ({ key: `pending-${text}`, text, kind: 'pending' })),
+    { key: 'direct-input', text: '직접 입력하기', kind: 'direct' },
   ];
+
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    const closeOutside = (event) => {
+      if (!openMenuRef.current?.contains(event.target)) setOpenMenuId(null);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpenMenuId(null);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openMenuId]);
+
   return (
     <div className="voice-sample-list">
       {message && <p role="status" className="local-voice-message">{message}</p>}
       {phrases.map((phrase) => {
         const isPlaying = playingPhrase === phrase.text;
+        const manageable = phrase.kind === 'shared' && Boolean(phrase.phraseId)
+          && typeof onEditPhrase === 'function' && typeof onDeletePhrase === 'function';
+        const processing = processingPhraseId === phrase.phraseId;
+        const directInput = phrase.kind === 'direct';
         return (
-          <button type="button" key={phrase.key} disabled={playDisabled}
-            onClick={() => onPlay(phrase.text)}
-            aria-label={`${phrase.text} ${isPlaying ? '재생 중지' : '재생'}`} aria-pressed={isPlaying}>
-            {isPlaying
-              ? <span className="voice-stop-small" aria-hidden="true" />
-              : <img src={asset('voice-play-small.svg')} alt="" />}
-            <span>{phrase.text}</span>
-          </button>
+          <div className="voice-sample-row" key={phrase.key}
+            ref={openMenuId === phrase.phraseId ? openMenuRef : undefined}>
+            <button type="button" className="voice-sample-main"
+              disabled={(directInput ? addDisabled : playDisabled) || processing}
+              onClick={() => (directInput ? onAdd() : onPlay(phrase.text))}
+              aria-label={directInput
+                ? '직접 문구 입력하기'
+                : `${phrase.text} ${isPlaying ? '재생 중지' : '재생'}`}
+              aria-pressed={directInput ? undefined : isPlaying}>
+              {!directInput && isPlaying
+                ? <span className="voice-stop-small" aria-hidden="true" />
+                : <img src={asset('voice-play-small.svg')} alt="" />}
+              <span>{phrase.text}</span>
+            </button>
+            <div className="voice-phrase-menu-wrap">
+              <button type="button" className="voice-phrase-menu-button"
+                aria-label={manageable ? `${phrase.text} 문구 메뉴` : `${phrase.text} 문구 메뉴 사용 불가`}
+                aria-haspopup={manageable ? 'menu' : undefined}
+                aria-expanded={manageable ? openMenuId === phrase.phraseId : undefined}
+                aria-disabled={!manageable || processing}
+                disabled={!manageable || processing}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpenMenuId((current) => (current === phrase.phraseId ? null : phrase.phraseId));
+                }}>
+                {processing ? <span className="voice-phrase-processing">처리 중</span> : <span aria-hidden="true">⋮</span>}
+              </button>
+              {manageable && openMenuId === phrase.phraseId && (
+                <div className="voice-phrase-menu" role="menu">
+                  <button type="button" role="menuitem" aria-label="문구 수정"
+                    onClick={() => { setOpenMenuId(null); onEditPhrase(phrase.source); }}>수정</button>
+                  <button type="button" role="menuitem" aria-label="문구 삭제"
+                    onClick={() => { setOpenMenuId(null); onDeletePhrase(phrase.source); }}>삭제</button>
+                </div>
+              )}
+            </div>
+          </div>
         );
       })}
-      <button type="button" disabled={addDisabled} onClick={onAdd} aria-label="직접 문구 입력하기">
-        <img src={asset('voice-play-small.svg')} alt="" />
-        <span>직접 입력하기</span>
-      </button>
     </div>
   );
 }
@@ -237,12 +307,22 @@ async function apiResponse(response) {
   throw new Error(payload.message || `음성 API 요청 실패 (HTTP ${response.status})`);
 }
 
-function VoiceDetail({ voice, sharedPhrases, phraseMessage, onBack, onUpdated, onDeleted }) {
+function VoiceDetail({
+  voice,
+  sharedPhrases,
+  phraseMessage,
+  onBack,
+  onUpdated,
+  onDeleted,
+  onPhraseUpdated,
+  onPhraseDeleted,
+}) {
   const [name, setName] = useState(voice.name);
   const [pendingPhrases, setPendingPhrases] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [playingPhrase, setPlayingPhrase] = useState('');
+  const [processingPhraseId, setProcessingPhraseId] = useState(null);
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
 
@@ -302,6 +382,44 @@ function VoiceDetail({ voice, sharedPhrases, phraseMessage, onBack, onUpdated, o
     }
   };
 
+  const editPhrase = async (phrase) => {
+    if (processingPhraseId) return;
+    setError('');
+    const input = window.prompt('수정할 문구를 입력해주세요 (500자 이내)', phrase.text);
+    let text;
+    try {
+      text = validateSharedPhraseEdit(sharedPhrases, phrase.phrase_id, phrase.text, input);
+    } catch (cause) {
+      setError(cause.message || '공유 문구를 수정하지 못했습니다.');
+      return;
+    }
+    if (text === null) return;
+    setProcessingPhraseId(phrase.phrase_id);
+    try {
+      const updated = await updateSharedPhrase(fetch, DEFAULT_HOME_ID, phrase.phrase_id, text);
+      onPhraseUpdated(updated);
+    } catch (cause) {
+      setError(cause.message || '공유 문구를 수정하지 못했습니다.');
+    } finally {
+      setProcessingPhraseId(null);
+    }
+  };
+
+  const deletePhrase = async (phrase) => {
+    if (processingPhraseId || !window.confirm('이 문구를 삭제할까요?')) return;
+    setError('');
+    setProcessingPhraseId(phrase.phrase_id);
+    try {
+      await deleteSharedPhrase(fetch, DEFAULT_HOME_ID, phrase.phrase_id);
+      if (playingPhrase === phrase.text) stopAudio();
+      onPhraseDeleted(phrase.phrase_id);
+    } catch (cause) {
+      setError(cause.message || '공유 문구를 삭제하지 못했습니다.');
+    } finally {
+      setProcessingPhraseId(null);
+    }
+  };
+
   const save = async () => {
     const trimmedName = name.trim();
     if (!trimmedName || busy) return;
@@ -344,7 +462,9 @@ function VoiceDetail({ voice, sharedPhrases, phraseMessage, onBack, onUpdated, o
           <VoicePhraseList sharedPhrases={sharedPhrases} pendingPhrases={pendingPhrases}
             message={phraseMessage} playingPhrase={playingPhrase}
             playDisabled={voice.requiresVerification || busy} addDisabled={busy}
-            onPlay={previewSample} onAdd={addPhrase} />
+            onPlay={previewSample} onAdd={addPhrase}
+            onEditPhrase={editPhrase} onDeletePhrase={deletePhrase}
+            processingPhraseId={processingPhraseId} />
           <label className="voice-name-field">
             <span>목소리 이름</span>
             <input type="text" value={name} onChange={(event) => setName(event.target.value)}
@@ -760,6 +880,14 @@ export default function LocalVoiceTrainingPage({ onBack }) {
         setRegisteredVoices((current) => current.filter((voice) => voice.voiceId !== voiceId));
         setSelectedVoice(null);
         setMode('overview');
+      }}
+      onPhraseUpdated={(updated) => {
+        setSharedPhrases((current) => current.map((phrase) => (
+          phrase.phrase_id === updated.phrase_id ? updated : phrase
+        )));
+      }}
+      onPhraseDeleted={(phraseId) => {
+        setSharedPhrases((current) => current.filter((phrase) => phrase.phrase_id !== phraseId));
       }}
     />;
   }

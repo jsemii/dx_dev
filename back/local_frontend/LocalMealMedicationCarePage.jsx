@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import TeamMealMedicationCarePage from '../../frontend/frontend/src/MealMedicationCarePage.jsx';
 import {
   addAlarm,
+  deleteAlarm,
   getAlarmSettings,
   listAlarms,
+  removeAlarmFromSettings,
   setAlarmEnabled,
   setAlarmSettings,
   settingsFromAlarms,
@@ -16,6 +18,19 @@ export default function LocalMealMedicationCarePage({ onBack }) {
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [pendingIds, setPendingIds] = useState([]);
+  const [deletingIds, setDeletingIds] = useState([]);
+  const mutationInFlightRef = useRef(false);
+  const interactionLocked = isSaving || pendingIds.length > 0 || deletingIds.length > 0;
+
+  function beginMutation() {
+    if (mutationInFlightRef.current || interactionLocked) return false;
+    mutationInFlightRef.current = true;
+    return true;
+  }
+
+  function finishMutation() {
+    mutationInFlightRef.current = false;
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -31,7 +46,7 @@ export default function LocalMealMedicationCarePage({ onBack }) {
   }, [retry]);
 
   async function saveSettings(updater) {
-    if (isSaving || result.kind !== 'ready') return;
+    if (result.kind !== 'ready' || !beginMutation()) return;
     const requested = updater(result.settings);
     setIsSaving(true);
     setError('');
@@ -54,11 +69,12 @@ export default function LocalMealMedicationCarePage({ onBack }) {
       setError(failure.message);
     } finally {
       setIsSaving(false);
+      finishMutation();
     }
   }
 
   async function saveReminder(type, reminder) {
-    if (isSaving) return false;
+    if (!beginMutation()) return false;
     setIsSaving(true);
     setError('');
     try {
@@ -80,11 +96,12 @@ export default function LocalMealMedicationCarePage({ onBack }) {
       return false;
     } finally {
       setIsSaving(false);
+      finishMutation();
     }
   }
 
   async function toggleReminder(type, id, enabled) {
-    if (pendingIds.includes(id)) return;
+    if (pendingIds.includes(id) || !beginMutation()) return;
     setPendingIds((current) => [...current, id]);
     setError('');
     try {
@@ -106,6 +123,32 @@ export default function LocalMealMedicationCarePage({ onBack }) {
       setError(failure.message);
     } finally {
       setPendingIds((current) => current.filter((pending) => pending !== id));
+      finishMutation();
+    }
+  }
+
+  async function removeReminder(type, id) {
+    if (result.kind !== 'ready' || !beginMutation()) return false;
+    const exists = result.settings.sections[type]?.reminders.some((item) => item.id === id);
+    if (!exists) {
+      finishMutation();
+      return false;
+    }
+    setDeletingIds([id]);
+    setError('');
+    try {
+      await deleteAlarm(id);
+      setResult((current) => ({
+        ...current,
+        settings: removeAlarmFromSettings(current.settings, type, id),
+      }));
+      return true;
+    } catch (failure) {
+      setError(failure.message);
+      return false;
+    } finally {
+      setDeletingIds([]);
+      finishMutation();
     }
   }
 
@@ -127,9 +170,12 @@ export default function LocalMealMedicationCarePage({ onBack }) {
     onSettingsChange={saveSettings}
     onSaveReminder={saveReminder}
     onSetReminderEnabled={toggleReminder}
+    onDeleteReminder={removeReminder}
     onClearError={() => setError('')}
     isSaving={isSaving}
     pendingIds={pendingIds}
+    deletingIds={deletingIds}
+    interactionLocked={interactionLocked}
     error={error}
   />;
 }
