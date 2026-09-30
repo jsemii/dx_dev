@@ -171,7 +171,7 @@ export default function LocalCalmCarePage({ onBack, onOpenVoice, onOpenContent, 
             <button type="button" onClick={stopDetection} disabled={saving}>감지 중지</button>
           ) : (canStart || detected || playbackStatus.busy || errorMessage || playerState === 'ERROR') && (
             <button type="button" onClick={startDetection} disabled={saving}>
-              {detected || playbackStatus.busy ? '감지 재개' : '감지 시작'}
+              {detected || playbackStatus.busy ? '감지 재개' : '감지'}
             </button>
           )}
         </section>

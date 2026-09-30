@@ -112,6 +112,8 @@ test('프론트는 원본 팀 파일을 수정하지 않고 로컬 안정 돌봄
   assert.match(source, /분노 표현 감지됨/);
   assert.match(source, /생활자 화면에서 안정 콘텐츠를 재생하고 있어요/);
   assert.match(source, /감지 재개/);
+  assert.match(source, /\? '감지 재개' : '감지'/);
+  assert.doesNotMatch(source, />감지 시작</);
   assert.doesNotMatch(source, /getUserMedia|MediaRecorder|new AngerMonitor/);
   assert.doesNotMatch(source, /<strong>YouTube 재생 상태<\/strong>/);
   assert.doesNotMatch(source, />YouTube 재생 화면 준비<\/button>/);

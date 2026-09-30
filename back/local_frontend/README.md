@@ -1,12 +1,14 @@
 # 로컬 전용 ThinQ 늘봄 ↔ 돌봄 대시보드 API 연결
 
-별도 Git 저장소인 `frontend`의 원본 파일을 수정하지 않고,
-팀원 `frontend/src/main.jsx` → `App.jsx` → `NeulbomPage.jsx` 화면을 그대로 실행합니다.
+팀원 `frontend/src/main.jsx` → `App.jsx` → `NeulbomPage.jsx` 화면을
+로컬 브리지에서도 동일하게 실행합니다.
 로컬 Vite alias가 `App.jsx`의 `NeulbomPage` import만 이 폴더의 래퍼로 연결하고,
 원본 카드에 실제 최근 돌봄과 제품 사용 현황 prop을 전달합니다. 화면의 기존
 펼치기 버튼이 API 사건을 표시합니다. `/api/care/dashboard` 요청은 Vite가
 로컬 백엔드 `127.0.0.1:8000`으로
 프록시하므로 브라우저에는 DB 접속 정보가 없습니다.
+공유 보호자 목록과 등록도 같은 백엔드의 `/api/caregivers`를 사용하며,
+mock 목록으로 대체하지 않습니다.
 음성 API 경로 `/api/voice`와 `/api/tts`만 별도 음성 서버
 `127.0.0.1:8081`로 전달합니다. 팀원 음성 화면 파일은 그대로 두고,
 로컬에서 `LocalVoiceTrainingPage.jsx`를 대신 사용해 마이크·재생·업로드와
@@ -100,7 +102,7 @@ heartbeat 응답에는 YouTube IFrame의 실제 상태와 현재 `request_id`, �
 
 안정 돌봄 화면은 canonical 상태 API인 `/api/playback/status`를 주기적으로 확인합니다.
 기존 `/api/anger/playback-status`는 호환용으로 동일 응답을 반환합니다. 준비된 Player가 없으면
-아이패드 마이크로 대체하지 않습니다. Player가 준비된 뒤 사용자가 **감지 시작**을
+아이패드 마이크로 대체하지 않습니다. Player가 준비된 뒤 사용자가 **감지**를
 누르면 `POST /api/playback/detection/start`가 기존 활성 Player WebSocket에
 `START_DETECTION`을 보내며, Player 맥북이 음량 감지와 10초 녹음, Anger 분석 요청을
 수행합니다. **감지 중지**와 안정 돌봄 OFF는 `STOP_DETECTION`을 보내며 아이패드의

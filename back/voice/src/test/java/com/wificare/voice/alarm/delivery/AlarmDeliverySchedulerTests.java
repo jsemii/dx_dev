@@ -70,7 +70,7 @@ class AlarmDeliverySchedulerTests {
 
         scheduler(properties(true)).execute(delivery, NOW);
 
-        verify(textToSpeech).generateSpeech("provider-id", "밥 먹어요");
+        verify(textToSpeech).generateSpeech("provider-id", "엄마~~ 밥 먹어요~~");
         verify(deliveries).markSent(DELIVERY_ID);
         verify(deliveries).recordPlaybackOutcome(delivery, result);
     }
@@ -85,7 +85,7 @@ class AlarmDeliverySchedulerTests {
 
         scheduler(properties(true)).execute(delivery, NOW);
 
-        verify(textToSpeech).generateSpeech("provider-id", "약 먹어요");
+        verify(textToSpeech).generateSpeech("provider-id", "엄마~~ 약 먹어요~~");
     }
 
     @Test
@@ -152,8 +152,8 @@ class AlarmDeliverySchedulerTests {
         scheduler.execute(second, NOW);
 
         verify(voices, times(2)).findLatestVerified("home_23");
-        verify(textToSpeech).generateSpeech("old-provider-id", "밥 먹어요");
-        verify(textToSpeech).generateSpeech("new-provider-id", "약 먹어요");
+        verify(textToSpeech).generateSpeech("old-provider-id", "엄마~~ 밥 먹어요~~");
+        verify(textToSpeech).generateSpeech("new-provider-id", "엄마~~ 약 먹어요~~");
     }
 
     @Test

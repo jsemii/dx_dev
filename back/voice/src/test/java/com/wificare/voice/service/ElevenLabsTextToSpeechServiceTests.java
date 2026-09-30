@@ -52,11 +52,11 @@ class ElevenLabsTextToSpeechServiceTests {
 				.andExpect(header("xi-api-key", TEST_API_KEY))
 				.andExpect(header("Content-Type", MediaType.APPLICATION_JSON_VALUE))
 				.andExpect(content().json(
-						"{\"text\":\"밥 먹어요.\",\"model_id\":\"eleven_multilingual_v2\"}",
+						"{\"text\":\"엄마~~ 밥 먹어요~~\",\"model_id\":\"eleven_multilingual_v2\"}",
 						JsonCompareMode.STRICT))
 				.andRespond(withSuccess(mp3, MediaType.valueOf("audio/mpeg")));
 
-		byte[] response = service.generateSpeech("generated-voice-id", "밥 먹어요.");
+		byte[] response = service.generateSpeech("generated-voice-id", "엄마~~ 밥 먹어요~~");
 
 		assertThat(response).isEqualTo(mp3);
 		server.verify();
@@ -66,7 +66,7 @@ class ElevenLabsTextToSpeechServiceTests {
 	void rejectsAnUnconfiguredApiKeyBeforeSendingARequest() {
 		properties.setApiKey(ElevenLabsProperties.PLACEHOLDER);
 
-		assertThatThrownBy(() -> service.generateSpeech("voice-id", "밥 먹어요."))
+		assertThatThrownBy(() -> service.generateSpeech("voice-id", "엄마~~ 밥 먹어요~~"))
 				.isInstanceOf(ElevenLabsConfigurationException.class)
 				.hasMessage("ElevenLabs API 설정이 필요합니다.");
 	}
@@ -77,7 +77,7 @@ class ElevenLabsTextToSpeechServiceTests {
 				"https://api.elevenlabs.io/v1/text-to-speech/voice-id?output_format=mp3_44100_128"))
 				.andRespond(withSuccess(new byte[0], MediaType.valueOf("audio/mpeg")));
 
-		assertThatThrownBy(() -> service.generateSpeech("voice-id", "밥 먹어요."))
+		assertThatThrownBy(() -> service.generateSpeech("voice-id", "엄마~~ 밥 먹어요~~"))
 				.isInstanceOf(ElevenLabsApiException.class)
 				.hasMessageContaining("빈 오디오");
 		server.verify();
@@ -91,7 +91,7 @@ class ElevenLabsTextToSpeechServiceTests {
 						.contentType(MediaType.APPLICATION_JSON)
 						.body("{\"detail\":\"sensitive upstream response\"}"));
 
-		assertThatThrownBy(() -> service.generateSpeech("voice-id", "밥 먹어요."))
+		assertThatThrownBy(() -> service.generateSpeech("voice-id", "엄마~~ 밥 먹어요~~"))
 				.isInstanceOf(ElevenLabsApiException.class)
 				.hasMessage("음성을 생성하지 못했습니다. 목소리와 문장을 확인해주세요.")
 				.hasMessageNotContaining("sensitive upstream response");

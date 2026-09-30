@@ -20,7 +20,7 @@ function SharePageHeader({ onBack }) {
   );
 }
 
-export function ReportSharePage({ guardians, onBack, onAddGuardian, onShare }) {
+export function ReportSharePage({ guardians, status, error, onBack, onAddGuardian, onRetry, onShare }) {
   useResetScreenScroll();
   const [selectedGuardianIds, setSelectedGuardianIds] = useState(() => new Set());
 
@@ -52,8 +52,20 @@ export function ReportSharePage({ guardians, onBack, onAddGuardian, onShare }) {
         </section>
 
         <section className="report-guardian-card" aria-label="공유할 보호자 목록">
-          <div className="report-guardian-list">
-            {guardians.map((guardian, index) => {
+          <div className="report-guardian-list" aria-busy={status === 'loading'}>
+            {status === 'loading' && (
+              <p className="report-guardian-state" role="status">보호자 목록을 불러오는 중이에요.</p>
+            )}
+            {status === 'error' && (
+              <div className="report-guardian-state report-guardian-state--error" role="alert">
+                <p>{error || '보호자 목록을 불러오지 못했습니다.'}</p>
+                <button type="button" onClick={onRetry}>다시 시도</button>
+              </div>
+            )}
+            {status === 'ready' && guardians.length === 0 && (
+              <p className="report-guardian-state">등록된 추가 보호자가 없어요.</p>
+            )}
+            {status === 'ready' && guardians.map((guardian, index) => {
               const selected = selectedGuardianIds.has(guardian.id);
 
               return (
@@ -86,7 +98,7 @@ export function ReportSharePage({ guardians, onBack, onAddGuardian, onShare }) {
             type="button"
             className="report-share-guardians-button"
             onClick={() => onShare?.(guardians.filter((guardian) => selectedGuardianIds.has(guardian.id)))}
-            disabled={selectedGuardianIds.size === 0}
+            disabled={status !== 'ready' || selectedGuardianIds.size === 0}
           >
             <img src={asset('report-share-action.svg')} alt="" />
             <span>공유하기</span>
@@ -101,8 +113,10 @@ export function GuardianRegistrationPage({ onBack, onRegister }) {
   useResetScreenScroll();
   const [form, setForm] = useState({ name: '', relationship: '', phone: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const updateField = (field) => (event) => {
+    setError('');
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
 
@@ -111,12 +125,15 @@ export function GuardianRegistrationPage({ onBack, onRegister }) {
     if (submitting) return;
 
     setSubmitting(true);
+    setError('');
     try {
       await onRegister?.({
         name: form.name.trim(),
         relationship: form.relationship.trim(),
         phone: form.phone.trim(),
       });
+    } catch (cause) {
+      setError(cause.message || '보호자를 등록하지 못했습니다.');
     } finally {
       setSubmitting(false);
     }
@@ -165,6 +182,7 @@ export function GuardianRegistrationPage({ onBack, onRegister }) {
               required
             />
           </label>
+          {error && <p className="report-guardian-form-error" role="alert">{error}</p>}
         </section>
 
         <button type="submit" className="report-register-guardian-button" disabled={submitting}>

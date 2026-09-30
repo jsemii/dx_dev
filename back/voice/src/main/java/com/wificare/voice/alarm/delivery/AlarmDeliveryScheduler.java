@@ -19,8 +19,8 @@ public class AlarmDeliveryScheduler {
     private static final Logger log = LoggerFactory.getLogger(AlarmDeliveryScheduler.class);
     private static final String AUDIO_MIME_TYPE = "audio/mpeg";
     private static final Map<String, String> PHRASES = Map.of(
-            "MEAL", "밥 먹어요",
-            "MEDICATION", "약 먹어요");
+            "MEAL", "엄마~~ 밥 먹어요~~",
+            "MEDICATION", "엄마~~ 약 먹어요~~");
     private static final Set<String> RETRYABLE_PLAYBACK_CODES = Set.of(
             "PLAYBACK_NOT_READY", "PLAYER_BUSY", "PLAYER_OFFLINE");
 
