@@ -415,6 +415,7 @@ function CustomCareSection({ onOpenVoice, onOpenContent }) {
 export default function NeulbomPage({
   onBack,
   onRefreshCare,
+  onCheckEmergency,
   onRegisterGuardian,
   onShareGuardians,
   reportHomeId = 'home_23',
@@ -428,6 +429,7 @@ export default function NeulbomPage({
   const [subPageReturn, setSubPageReturn] = useState('dashboard');
   const [showEmergencySummary, setShowEmergencySummary] = useState(false);
   const [showEmergencyDetail, setShowEmergencyDetail] = useState(false);
+  const [checkingEmergency, setCheckingEmergency] = useState(false);
   const [mealMedicationSettings, setMealMedicationSettings] = useState(mealMedicationCareMock);
   const [calmCareEnabled, setCalmCareEnabled] = useState(false);
   const [guardians, setGuardians] = useState([]);
@@ -481,6 +483,22 @@ export default function NeulbomPage({
   };
 
   const latestEmergency = emergencyAlerts[0] || null;
+
+  const openEmergencySummary = async () => {
+    if (checkingEmergency) return;
+    if (latestEmergency) {
+      setShowEmergencySummary(true);
+      return;
+    }
+    if (!onCheckEmergency) return;
+    setCheckingEmergency(true);
+    try {
+      const refreshed = await onCheckEmergency();
+      if (refreshed?.emergencyAlerts?.length) setShowEmergencySummary(true);
+    } finally {
+      setCheckingEmergency(false);
+    }
+  };
 
   useEffect(() => {
     if (!latestEmergency) {
@@ -573,7 +591,7 @@ export default function NeulbomPage({
                 overview={displayedCareOverview}
                 recentCare={recentCare}
                 onRefresh={onRefreshCare}
-                onEmergency={latestEmergency ? () => setShowEmergencySummary(true) : undefined}
+                onEmergency={latestEmergency || onCheckEmergency ? openEmergencySummary : undefined}
               />
             )}
             <ManagedSummary />

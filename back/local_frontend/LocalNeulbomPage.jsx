@@ -22,12 +22,15 @@ function ConnectedNeulbomPage({ onBack }) {
     if (showLoading) setResult({ kind: 'loading' });
     return loadCareDashboard(fetch, REPORT_HOME_ID, serverToday, { signal: controller.signal })
       .then((body) => {
-        if (requestId === requestIdRef.current) setResult({ kind: 'ready', view: mapCareDashboard(body, supportedCards) });
+        const view = mapCareDashboard(body, supportedCards);
+        if (requestId === requestIdRef.current) setResult({ kind: 'ready', view });
+        return view;
       })
       .catch((error) => {
         if (error.name !== 'AbortError' && requestId === requestIdRef.current) {
           setResult({ kind: 'error', message: error.message });
         }
+        return null;
       })
       .finally(() => {
         if (requestId === requestIdRef.current) controllerRef.current = null;
@@ -70,6 +73,7 @@ function ConnectedNeulbomPage({ onBack }) {
       emergencyAlerts={view.emergencyAlerts}
       reportHomeId={REPORT_HOME_ID}
       onRefreshCare={refreshDashboard}
+      onCheckEmergency={refreshDashboard}
       careStatusAriaLabel={serverToday ? `${serverToday} 돌봄 상태` : '서버 날짜 확인 실패'}
     />
   );

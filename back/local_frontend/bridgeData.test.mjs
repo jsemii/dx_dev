@@ -108,11 +108,13 @@ test('care dashboard opens real emergency summary from the status and detail bac
   const source = readFileSync('../../frontend/frontend/src/NeulbomPage.jsx', 'utf8');
   const styles = readFileSync('../../frontend/frontend/src/neulbom.css', 'utf8');
   assert.match(source, /const latestEmergency = emergencyAlerts\[0\] \|\| null/);
+  assert.match(source, /const refreshed = await onCheckEmergency\(\)/);
+  assert.match(source, /if \(refreshed\?\.emergencyAlerts\?\.length\) setShowEmergencySummary\(true\)/);
   assert.match(source, /const \[showEmergencySummary, setShowEmergencySummary\] = useState\(false\)/);
   assert.match(source, /showEmergencySummary && latestEmergency \? \([\s\S]*<EmergencyAlertCard/);
   assert.match(source, /\) : \([\s\S]*<CareTodayCard/);
   assert.match(source, /alert=\{latestEmergency\} onBack=\{\(\) => setShowEmergencyDetail\(false\)\}/);
-  assert.match(source, /onEmergency=\{latestEmergency \? \(\) => setShowEmergencySummary\(true\) : undefined\}/);
+  assert.match(source, /onEmergency=\{latestEmergency \|\| onCheckEmergency \? openEmergencySummary : undefined\}/);
   assert.match(source, /care-today-status--interactive/);
   assert.match(source, /aria-label=\{`\$\{overview\.status\}: 돌봄 긴급 알림 보기`\}/);
   assert.doesNotMatch(source, /careDemoPhase|긴급 알림 시연/);
@@ -237,6 +239,7 @@ test('local care page uses server today, cancels stale requests and wires real r
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /requestId === requestIdRef\.current/);
   assert.match(source, /onRefreshCare=\{refreshDashboard\}/);
+  assert.match(source, /onCheckEmergency=\{refreshDashboard\}/);
   assert.match(source, /emergencyAlerts=\{view\.emergencyAlerts\}/);
   assert.match(source, /applianceUsageResetKey=\{serverToday/);
   assert.match(source, /`\$\{serverToday\} 돌봄 상태`/);
