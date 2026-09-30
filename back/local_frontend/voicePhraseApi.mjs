@@ -1,4 +1,5 @@
 const PHRASE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEFAULT_VOICE_PHRASES = Object.freeze(['밥 먹어요', '약 먹어요']);
 
 async function checked(response, fallback) {
   if (response.ok) return response;
@@ -13,6 +14,13 @@ function sharedPhrase(value) {
     throw new Error('공유 문구 응답 형식이 올바르지 않습니다.');
   }
   return value;
+}
+
+function phrasePath(phraseId) {
+  if (!PHRASE_ID_PATTERN.test(phraseId || '')) {
+    throw new Error('올바른 문구 ID가 필요합니다.');
+  }
+  return `/api/voice/shared-phrases/${encodeURIComponent(phraseId)}`;
 }
 
 export async function loadSharedPhrases(fetcher, homeId, signal) {
@@ -33,6 +41,36 @@ export async function saveSharedPhrase(fetcher, homeId, rawText) {
     body: JSON.stringify({ home_id: homeId, text }),
   }), '공유 문구를 저장하지 못했습니다.');
   return sharedPhrase(await response.json());
+}
+
+export function validateSharedPhraseEdit(sharedPhrases, phraseId, currentText, rawText) {
+  if (rawText === null) return null;
+  const text = rawText?.trim() || '';
+  if (!text) throw new Error('수정할 문구를 입력해주세요.');
+  if (text.length > 500) throw new Error('문구는 500자 이하로 입력해주세요.');
+  if (DEFAULT_VOICE_PHRASES.includes(text)) throw new Error('기본 문구와 같은 문구는 등록할 수 없습니다.');
+  if (sharedPhrases.some((phrase) => phrase.phrase_id !== phraseId && phrase.text === text)) {
+    throw new Error('이미 등록된 문구입니다.');
+  }
+  return text === currentText ? null : text;
+}
+
+export async function updateSharedPhrase(fetcher, homeId, phraseId, rawText) {
+  const text = rawText?.trim() || '';
+  const response = await checked(await fetcher(phrasePath(phraseId), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ home_id: homeId, text }),
+  }), '공유 문구를 수정하지 못했습니다.');
+  return sharedPhrase(await response.json());
+}
+
+export async function deleteSharedPhrase(fetcher, homeId, phraseId) {
+  const params = new URLSearchParams({ home_id: homeId });
+  const response = await checked(await fetcher(`${phrasePath(phraseId)}?${params}`, {
+    method: 'DELETE',
+  }), '공유 문구를 삭제하지 못했습니다.');
+  if (response.status !== 204) throw new Error('공유 문구 삭제 응답 형식이 올바르지 않습니다.');
 }
 
 export function stageSharedPhrase(existingTexts, pendingTexts, rawText) {

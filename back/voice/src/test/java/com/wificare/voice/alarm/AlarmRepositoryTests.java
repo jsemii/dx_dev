@@ -61,6 +61,85 @@ class AlarmRepositoryTests {
     }
 
     @Test
+    void deleteLocksAlarmAndDeliveriesThenDeletesByIdAndHome() throws SQLException {
+        PreparedStatement alarmLock = mock(PreparedStatement.class);
+        PreparedStatement deliveryLock = mock(PreparedStatement.class);
+        PreparedStatement delete = mock(PreparedStatement.class);
+        ResultSet owned = mock(ResultSet.class);
+        ResultSet deliveries = mock(ResultSet.class);
+        ResultSet deleted = mock(ResultSet.class);
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("FROM public.alarm WHERE alarm_id = ?")))
+                .thenReturn(alarmLock);
+        when(connection.prepareStatement(contains("FROM public.alarm_delivery")))
+                .thenReturn(deliveryLock);
+        when(connection.prepareStatement(startsWith("DELETE FROM public.alarm")))
+                .thenReturn(delete);
+        when(alarmLock.executeQuery()).thenReturn(owned);
+        when(deliveryLock.executeQuery()).thenReturn(deliveries);
+        when(delete.executeQuery()).thenReturn(deleted);
+        when(owned.next()).thenReturn(true);
+        when(deliveries.next()).thenReturn(false);
+        when(deleted.next()).thenReturn(true);
+
+        repository.delete(ALARM_ID, "demo_solo_house009");
+
+        verify(connection).setAutoCommit(false);
+        verify(connection).prepareStatement(contains(
+                "SELECT alarm_id FROM public.alarm WHERE alarm_id = ? AND resident_thinq_id = ? FOR UPDATE"));
+        verify(connection).prepareStatement(contains(
+                "SELECT status FROM public.alarm_delivery WHERE alarm_id = ? FOR UPDATE"));
+        verify(connection).prepareStatement(contains(
+                "DELETE FROM public.alarm WHERE alarm_id = ? AND resident_thinq_id = ? RETURNING alarm_id"));
+        verify(delete).setObject(1, ALARM_ID);
+        verify(delete).setString(2, "demo_solo_house009");
+        verify(connection).commit();
+        verify(connection, never()).rollback();
+    }
+
+    @Test
+    void deleteRejectsAnotherHomeBeforeDeleteStatement() throws SQLException {
+        PreparedStatement alarmLock = mock(PreparedStatement.class);
+        ResultSet owned = mock(ResultSet.class);
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("FROM public.alarm WHERE alarm_id = ?")))
+                .thenReturn(alarmLock);
+        when(alarmLock.executeQuery()).thenReturn(owned);
+        when(owned.next()).thenReturn(false);
+
+        assertThatThrownBy(() -> repository.delete(ALARM_ID, "other_home"))
+                .isInstanceOf(AlarmNotFoundException.class);
+
+        verify(connection).rollback();
+        verify(connection, never()).prepareStatement(startsWith("DELETE FROM public.alarm"));
+    }
+
+    @Test
+    void activeDeliveryPreventsConcurrentDeleteAndRollsBack() throws SQLException {
+        PreparedStatement alarmLock = mock(PreparedStatement.class);
+        PreparedStatement deliveryLock = mock(PreparedStatement.class);
+        ResultSet owned = mock(ResultSet.class);
+        ResultSet deliveries = mock(ResultSet.class);
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("FROM public.alarm WHERE alarm_id = ?")))
+                .thenReturn(alarmLock);
+        when(connection.prepareStatement(contains("FROM public.alarm_delivery")))
+                .thenReturn(deliveryLock);
+        when(alarmLock.executeQuery()).thenReturn(owned);
+        when(deliveryLock.executeQuery()).thenReturn(deliveries);
+        when(owned.next()).thenReturn(true);
+        when(deliveries.next()).thenReturn(true);
+        when(deliveries.getString("status")).thenReturn("GENERATING");
+
+        assertThatThrownBy(() -> repository.delete(ALARM_ID, "demo_solo_house009"))
+                .isInstanceOf(AlarmDeleteConflictException.class);
+
+        verify(connection).rollback();
+        verify(connection, never()).prepareStatement(startsWith("DELETE FROM public.alarm"));
+        verify(connection, never()).commit();
+    }
+
+    @Test
     void insertionBindsLocalTimeWithoutTimezoneConversion() throws SQLException {
         query();
         when(result.next()).thenReturn(true);

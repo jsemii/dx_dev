@@ -6,11 +6,13 @@ import com.wificare.voice.content.ContentNotFoundException;
 import com.wificare.voice.content.ContentItemNotFoundException;
 import com.wificare.voice.content.ContentStoreUnavailableException;
 import com.wificare.voice.alarm.AlarmNotFoundException;
+import com.wificare.voice.alarm.AlarmDeleteConflictException;
 import com.wificare.voice.alarm.AlarmStoreUnavailableException;
 import com.wificare.voice.exception.ElevenLabsApiException;
 import com.wificare.voice.exception.ElevenLabsConfigurationException;
 import com.wificare.voice.exception.DuplicateSharedPhraseException;
 import com.wificare.voice.exception.InvalidVoiceFileException;
+import com.wificare.voice.exception.SharedPhraseNotFoundException;
 import com.wificare.voice.exception.VoiceNotFoundException;
 import com.wificare.voice.exception.VoiceStoreUnavailableException;
 import org.springframework.http.HttpStatus;
@@ -68,6 +70,11 @@ public class ApiExceptionHandler {
 		return response(HttpStatus.CONFLICT, exception.getMessage());
 	}
 
+	@ExceptionHandler(SharedPhraseNotFoundException.class)
+	public ResponseEntity<ApiErrorResponse> handleMissingSharedPhrase(SharedPhraseNotFoundException exception) {
+		return response(HttpStatus.NOT_FOUND, exception.getMessage());
+	}
+
 	@ExceptionHandler(VoiceStoreUnavailableException.class)
 	public ResponseEntity<ApiErrorResponse> handleUnavailableStore(VoiceStoreUnavailableException exception) {
 		return response(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
@@ -91,6 +98,11 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(AlarmNotFoundException.class)
 	public ResponseEntity<ApiErrorResponse> handleMissingAlarm(AlarmNotFoundException exception) {
 		return response(HttpStatus.NOT_FOUND, exception.getMessage());
+	}
+
+	@ExceptionHandler(AlarmDeleteConflictException.class)
+	public ResponseEntity<ApiErrorResponse> handleAlarmDeleteConflict(AlarmDeleteConflictException exception) {
+		return response(HttpStatus.CONFLICT, exception.getMessage());
 	}
 
 	@ExceptionHandler(AlarmStoreUnavailableException.class)

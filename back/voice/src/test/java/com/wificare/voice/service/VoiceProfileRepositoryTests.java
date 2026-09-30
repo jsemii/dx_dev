@@ -22,6 +22,7 @@ import com.wificare.voice.db.VoiceDatabase;
 import com.wificare.voice.dto.RegisteredVoice;
 import com.wificare.voice.dto.SharedPhrase;
 import com.wificare.voice.exception.DuplicateSharedPhraseException;
+import com.wificare.voice.exception.SharedPhraseNotFoundException;
 import com.wificare.voice.exception.VoiceNotFoundException;
 import com.wificare.voice.exception.VoiceStoreUnavailableException;
 import org.junit.jupiter.api.Test;
@@ -179,6 +180,100 @@ class VoiceProfileRepositoryTests {
         assertThatThrownBy(() -> repository.addSharedPhrase("home_23", "약 드실 시간이에요"))
                 .isInstanceOf(DuplicateSharedPhraseException.class)
                 .hasMessage("이미 등록된 문구입니다.");
+    }
+
+    @Test
+    void sharedPhraseUpdateLocksTheResidentAndPreservesIdCreationTimeAndArrayOrder() throws SQLException {
+        PreparedStatement lock = mock(PreparedStatement.class);
+        PreparedStatement update = mock(PreparedStatement.class);
+        ResultSet locked = mock(ResultSet.class);
+        ResultSet updated = mock(ResultSet.class);
+        Instant updatedAt = Instant.parse("2026-09-30T05:00:00Z");
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("AS owned"))).thenReturn(lock);
+        when(connection.prepareStatement(contains("'{updated_at}'"))).thenReturn(update);
+        when(lock.executeQuery()).thenReturn(locked);
+        when(locked.next()).thenReturn(true);
+        when(locked.getBoolean("owned")).thenReturn(true);
+        when(locked.getBoolean("duplicate")).thenReturn(false);
+        when(update.executeQuery()).thenReturn(updated);
+        when(updated.next()).thenReturn(true);
+        when(updated.getObject("phrase_id", UUID.class)).thenReturn(PHRASE_ID);
+        when(updated.getString("text")).thenReturn("수정 문구");
+        when(updated.getTimestamp("created_at")).thenReturn(Timestamp.from(CREATED_AT));
+        when(updated.getTimestamp("updated_at")).thenReturn(Timestamp.from(updatedAt));
+
+        assertThat(repository.updateSharedPhrase("home_23", PHRASE_ID, "수정 문구"))
+                .isEqualTo(new SharedPhrase(PHRASE_ID, "수정 문구", CREATED_AT, updatedAt));
+
+        verify(connection).setAutoCommit(false);
+        verify(connection).prepareStatement(contains("FOR UPDATE"));
+        verify(connection).prepareStatement(contains("ELSE entry END ORDER BY ordinal"));
+        verify(connection).prepareStatement(org.mockito.ArgumentMatchers.argThat(
+                sql -> sql.contains("SET shared_phrases") && !sql.contains("voice_profiles =")
+                        && !sql.contains("default_voice_id =")));
+        verify(lock).setString(1, PHRASE_ID.toString());
+        verify(lock).setString(2, "수정 문구");
+        verify(lock).setString(3, PHRASE_ID.toString());
+        verify(lock).setString(4, "home_23");
+        verify(connection).commit();
+    }
+
+    @Test
+    void duplicateOrMissingSharedPhraseRollsBackWithoutUpdatingJson() throws SQLException {
+        PreparedStatement lock = mock(PreparedStatement.class);
+        ResultSet locked = mock(ResultSet.class);
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("AS owned"))).thenReturn(lock);
+        when(lock.executeQuery()).thenReturn(locked);
+        when(locked.next()).thenReturn(true);
+        when(locked.getBoolean("owned")).thenReturn(true);
+        when(locked.getBoolean("duplicate")).thenReturn(true);
+
+        assertThatThrownBy(() -> repository.updateSharedPhrase("home_23", PHRASE_ID, "중복 문구"))
+                .isInstanceOf(DuplicateSharedPhraseException.class);
+        verify(connection).rollback();
+        verify(connection, never()).commit();
+        verify(connection, never()).prepareStatement(contains("'{updated_at}'"));
+    }
+
+    @Test
+    void sharedPhraseDeleteRemovesOnlyTheTargetAndLeavesAnEmptyJsonArrayWhenLast() throws SQLException {
+        PreparedStatement lock = mock(PreparedStatement.class);
+        PreparedStatement update = mock(PreparedStatement.class);
+        ResultSet locked = mock(ResultSet.class);
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("AS owned"))).thenReturn(lock);
+        when(connection.prepareStatement(contains("jsonb_agg(entry ORDER BY ordinal)"))).thenReturn(update);
+        when(lock.executeQuery()).thenReturn(locked);
+        when(locked.next()).thenReturn(true);
+        when(locked.getBoolean("owned")).thenReturn(true);
+        when(update.executeUpdate()).thenReturn(1);
+
+        repository.deleteSharedPhrase("home_23", PHRASE_ID);
+
+        verify(connection).prepareStatement(contains("COALESCE(jsonb_agg(entry ORDER BY ordinal), '[]'::jsonb)"));
+        verify(connection).prepareStatement(org.mockito.ArgumentMatchers.argThat(
+                sql -> sql.contains("SET shared_phrases") && !sql.contains("voice_profiles =")
+                        && !sql.contains("default_voice_id =")));
+        verify(update).setString(1, PHRASE_ID.toString());
+        verify(update).setString(2, "home_23");
+        verify(connection).commit();
+    }
+
+    @Test
+    void anotherResidentsSharedPhraseCannotBeChangedOrDeleted() throws SQLException {
+        PreparedStatement lock = mock(PreparedStatement.class);
+        ResultSet locked = mock(ResultSet.class);
+        when(database.connect()).thenReturn(connection);
+        when(connection.prepareStatement(contains("AS owned"))).thenReturn(lock);
+        when(lock.executeQuery()).thenReturn(locked);
+        when(locked.next()).thenReturn(false);
+
+        assertThatThrownBy(() -> repository.deleteSharedPhrase("other_home", PHRASE_ID))
+                .isInstanceOf(SharedPhraseNotFoundException.class);
+        verify(connection).rollback();
+        verify(connection, never()).commit();
     }
 
     @Test

@@ -194,7 +194,54 @@
   font-size: 17px;
   font-weight: 400;
   line-height: 1;
+  position: relative;
+  z-index: 1;
+  min-height: 32px;
+  background: #fff;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 220ms ease, transform 180ms ease;
+  will-change: transform;
+}
+
+.reminder-row--dragging {
   transition: opacity 220ms ease;
+}
+
+.reminder-swipe {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.reminder-delete-button {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 76px;
+  border: 0;
+  background: #d92d20;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reminder-delete-button:focus-visible {
+  outline: 3px solid #111;
+  outline-offset: -3px;
+}
+
+.reminder-delete-button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.reminder-swipe--deleting .reminder-row {
+  opacity: 0.52;
 }
 
 .reminder-row-controls {

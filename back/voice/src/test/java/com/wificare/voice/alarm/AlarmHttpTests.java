@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -56,6 +57,36 @@ class AlarmHttpTests {
                         + "\"meal_enabled\":true,\"medication_enabled\":false}"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("\"medication_enabled\":false")));
+    }
+
+    @Test
+    void deleteReturnsNoContentOnlyForTheOwnedAlarm() throws Exception {
+        mvc.perform(delete("/api/alarms/{alarmId}", ALARM_ID)
+                        .param("home_id", "demo_solo_house009"))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        verify(repository).delete(ALARM_ID, "demo_solo_house009");
+
+        mvc.perform(delete("/api/alarms/not-a-uuid")
+                        .param("home_id", "demo_solo_house009"))
+                .andExpect(status().isBadRequest());
+
+        org.mockito.Mockito.doThrow(new AlarmNotFoundException())
+                .when(repository).delete(ALARM_ID, "other_home");
+        mvc.perform(delete("/api/alarms/{alarmId}", ALARM_ID)
+                        .param("home_id", "other_home"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void activeDeliveryDeleteConflictIsReportedAs409() throws Exception {
+        org.mockito.Mockito.doThrow(new AlarmDeleteConflictException())
+                .when(repository).delete(ALARM_ID, "demo_solo_house009");
+
+        mvc.perform(delete("/api/alarms/{alarmId}", ALARM_ID)
+                        .param("home_id", "demo_solo_house009"))
+                .andExpect(status().isConflict())
+                .andExpect(content().string(containsString("재생 중")));
     }
 
     @Test

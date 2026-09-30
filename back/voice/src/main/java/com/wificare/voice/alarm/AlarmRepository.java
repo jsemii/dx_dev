@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,7 @@ public class AlarmRepository {
     private static final Logger log = LoggerFactory.getLogger(AlarmRepository.class);
     private static final String COLUMNS = "alarm_id, resident_thinq_id, alarm_type::text AS alarm_type, "
             + "alarm_name, alarm_time, is_enabled";
+    private static final Set<String> ACTIVE_DELIVERY_STATUSES = Set.of("GENERATING", "SENT", "PLAYING");
     private final VoiceDatabase database;
 
     public AlarmRepository(VoiceDatabase database) {
@@ -75,6 +77,60 @@ public class AlarmRepository {
             }
         } catch (SQLException | IllegalStateException error) {
             throw unavailable(error);
+        }
+    }
+
+    public void delete(UUID alarmId, String homeId) {
+        try (Connection connection = database.connect()) {
+            connection.setAutoCommit(false);
+            try {
+                lockOwnedAlarm(connection, alarmId, homeId);
+                lockAndCheckDeliveries(connection, alarmId);
+                String sql = "DELETE FROM public.alarm "
+                        + "WHERE alarm_id = ? AND resident_thinq_id = ? RETURNING alarm_id";
+                try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                    statement.setObject(1, alarmId);
+                    statement.setString(2, homeId);
+                    try (ResultSet result = statement.executeQuery()) {
+                        if (!result.next()) throw new AlarmNotFoundException();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException error) {
+                rollbackQuietly(connection);
+                throw error;
+            } catch (RuntimeException error) {
+                rollbackQuietly(connection);
+                throw error;
+            }
+        } catch (SQLException | IllegalStateException error) {
+            throw unavailable(error);
+        }
+    }
+
+    private static void lockOwnedAlarm(Connection connection, UUID alarmId, String homeId) throws SQLException {
+        String sql = "SELECT alarm_id FROM public.alarm "
+                + "WHERE alarm_id = ? AND resident_thinq_id = ? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, alarmId);
+            statement.setString(2, homeId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) throw new AlarmNotFoundException();
+            }
+        }
+    }
+
+    private static void lockAndCheckDeliveries(Connection connection, UUID alarmId) throws SQLException {
+        String sql = "SELECT status FROM public.alarm_delivery WHERE alarm_id = ? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, alarmId);
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    if (ACTIVE_DELIVERY_STATUSES.contains(result.getString("status"))) {
+                        throw new AlarmDeleteConflictException();
+                    }
+                }
+            }
         }
     }
 
@@ -135,6 +191,14 @@ public class AlarmRepository {
     private static void setBoolean(PreparedStatement statement, int index, Boolean value) throws SQLException {
         if (value == null) statement.setNull(index, java.sql.Types.BOOLEAN);
         else statement.setBoolean(index, value);
+    }
+
+    private static void rollbackQuietly(Connection connection) {
+        try {
+            connection.rollback();
+        } catch (SQLException ignored) {
+            // Preserve the original validation or storage error.
+        }
     }
 
     private static AlarmStoreUnavailableException unavailable(Exception error) {
