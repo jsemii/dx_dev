@@ -104,19 +104,53 @@ test('all app screens start at the top without the simulated status bar', () => 
   assert.match(styles, /\.main-tabs[\s\S]*height: 100dvh/);
 });
 
-test('care dashboard includes the emergency demo and resolves to the normal message on back', () => {
+test('care dashboard opens real emergency summary from the status and detail back returns to it', () => {
   const source = readFileSync('../../frontend/frontend/src/NeulbomPage.jsx', 'utf8');
   const styles = readFileSync('../../frontend/frontend/src/neulbom.css', 'utf8');
-  assert.match(source, /className="care-today-status"[\s\S]*onClick=\{onEmergency\}/);
+  assert.match(source, /const latestEmergency = emergencyAlerts\[0\] \|\| null/);
+  assert.match(source, /const \[showEmergencySummary, setShowEmergencySummary\] = useState\(false\)/);
+  assert.match(source, /showEmergencySummary && latestEmergency \? \([\s\S]*<EmergencyAlertCard/);
+  assert.match(source, /\) : \([\s\S]*<CareTodayCard/);
+  assert.match(source, /alert=\{latestEmergency\} onBack=\{\(\) => setShowEmergencyDetail\(false\)\}/);
+  assert.match(source, /onEmergency=\{latestEmergency \? \(\) => setShowEmergencySummary\(true\) : undefined\}/);
+  assert.match(source, /care-today-status--interactive/);
+  assert.match(source, /aria-label=\{`\$\{overview\.status\}: 돌봄 긴급 알림 보기`\}/);
+  assert.doesNotMatch(source, /careDemoPhase|긴급 알림 시연/);
   assert.match(source, /확인이 필요한 돌봄 긴급 알림이/);
-  assert.match(source, /식사 확인이 필요해요\./);
-  assert.match(source, /setCareDemoPhase\('resolved'\)/);
+  assert.match(source, /alert\.history\.map\(\(item\) =>/);
   assert.match(source, /status: '돌봄 중'/);
   assert.match(source, /lastAppliance: '냉장고'/);
-  assert.match(source, /message: \['오늘도 평소처럼', '일상을 보내고 있어요'\]/);
+  assert.doesNotMatch(source, /13:00|12:50|상태 분석|화면 안내|센서 감지|푸시 알림/);
   assert.match(styles, /\.care-emergency-card/);
   assert.match(styles, /\.care-emergency-history-list/);
   assert.match(styles, /\.care-emergency-call/);
+  assert.match(styles, /\.care-today-status--interactive:focus-visible/);
+});
+
+test('emergency screen stays inside the iPad-sized app shell', () => {
+  const shellStyles = readFileSync('../../frontend/frontend/src/styles.css', 'utf8');
+  const careStyles = readFileSync('../../frontend/frontend/src/neulbom.css', 'utf8');
+  assert.match(shellStyles, /\.app-shell[\s\S]*max-width: 393px/);
+  assert.match(careStyles, /\.care-emergency-content[\s\S]*width: 353px/);
+  assert.match(careStyles, /\.care-emergency-history-list[\s\S]*width: 100%/);
+});
+
+test('emergency history rows use auto height with a stable time column', () => {
+  const styles = readFileSync('../../frontend/frontend/src/neulbom.css', 'utf8');
+  const row = styles.match(/\.care-emergency-history-row \{([^}]*)\}/)?.[1] || '';
+  const time = styles.match(/\.care-emergency-history-row time \{([^}]*)\}/)?.[1] || '';
+  const title = styles.match(/\.care-emergency-history-row strong \{([^}]*)\}/)?.[1] || '';
+  const detail = styles.match(/\.care-emergency-history-row span \{([^}]*)\}/)?.[1] || '';
+
+  assert.match(row, /align-items: flex-start/);
+  assert.match(row, /padding: 14px 0/);
+  assert.match(row, /border-bottom: 1px solid/);
+  assert.doesNotMatch(row, /(?:min-)?height:/);
+  assert.doesNotMatch(row, /overflow: hidden/);
+  assert.match(time, /flex: 0 0 68px/);
+  assert.match(time, /white-space: nowrap/);
+  assert.match(title, /line-height: 1\.4/);
+  assert.match(detail, /line-height: 1\.4/);
 });
 
 test('missing or unsupported data and loading never show fixed mock sums', () => {
@@ -138,6 +172,7 @@ test('maps dashboard care and product data without falling back to teammate mock
       message: ['선택한 날짜의 돌봄 기록을', '확인했어요'],
     },
     recent_care: [{ id: 'care-1', title: '주방에서 식사를 안내했어요.', detail: '식사 행동이 확인됐어요.', time: '08:30' }],
+    emergency_alerts: [],
     latest_appliance: { name: '공기청정기' },
     products: {
       purifier: { id: 'purifier', value: 1.45, unit: 'L', has_data: true, events: [] },
@@ -154,10 +189,35 @@ test('maps dashboard care and product data without falling back to teammate mock
   assert.equal(view.cards[2].value, '0');
 });
 
+test('maps exactly two real alarm attempts with second-level timestamps', () => {
+  const view = mapCareDashboard({
+    care_overview: { status: 'ATTENTION', message: ['확인이 필요한 돌봄 기록이 있어요'] },
+    recent_care: [],
+    emergency_alerts: [{
+      care_event_id: '88888888-8888-4888-8888-888888888888',
+      care_type: 'MEAL',
+      title: '식사 확인이 필요해요.',
+      description: '식사가 평소보다 지연되고 있어요.',
+      history: [
+        { attempt: 1, time: '10:02:00', action: '1차 알림', detail: '음성 안내 · 스피커' },
+        { attempt: 2, time: '10:03:30', action: '2차 알림', detail: '음성 안내 · 스피커' },
+      ],
+    }],
+    latest_appliance: null,
+    products: {},
+  }, originals);
+
+  assert.equal(view.emergencyAlerts.length, 1);
+  assert.equal(view.emergencyAlerts[0].careType, 'MEAL');
+  assert.equal(view.emergencyAlerts[0].history.length, 2);
+  assert.deepEqual(view.emergencyAlerts[0].history.map((item) => item.time), ['10:02:00', '10:03:30']);
+});
+
 test('empty care is explicit and loading or failure never exposes care mocks', () => {
   const empty = mapCareDashboard({
     care_overview: { status: 'EMPTY', message: ['선택한 날짜의 돌봄 기록이 없어요'] },
     recent_care: [],
+    emergency_alerts: [],
     latest_appliance: null,
     products: Object.fromEntries(['purifier', 'refrigerator', 'tv'].map((id) => [id, {
       id, value: 0, unit: id === 'refrigerator' ? '번' : id === 'purifier' ? 'L' : '시간',
@@ -177,6 +237,7 @@ test('local care page uses server today, cancels stale requests and wires real r
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /requestId === requestIdRef\.current/);
   assert.match(source, /onRefreshCare=\{refreshDashboard\}/);
+  assert.match(source, /emergencyAlerts=\{view\.emergencyAlerts\}/);
   assert.match(source, /applianceUsageResetKey=\{serverToday/);
   assert.match(source, /`\$\{serverToday\} 돌봄 상태`/);
 });

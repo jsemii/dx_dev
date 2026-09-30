@@ -19,15 +19,6 @@ import './neulbom.css';
 
 const asset = (name) => `/assets/${name}`;
 
-const emergencyHistory = [
-  { time: '13:00', action: '3차 알림', detail: '푸시 알림 · ThinQ 앱' },
-  { time: '12:50', action: '상태 확인', detail: '상태 분석 · 돌봄 시스템' },
-  { time: '12:33', action: '2차 알림', detail: '화면 안내 · TV' },
-  { time: '12:25', action: '상태 확인', detail: '상태 분석 · 돌봄 시스템' },
-  { time: '12:05', action: '행동 감지', detail: '센서 감지 · 냉장고' },
-  { time: '12:00', action: '1차 알림', detail: '음성 안내 · 스피커' },
-];
-
 function CareIcon({ feature }) {
   return (
     <span className={`care-feature-icon care-feature-icon--${feature.iconClass}`} aria-hidden="true">
@@ -116,14 +107,18 @@ function CareTodayCard({ overview, recentCare, onRefresh, onEmergency }) {
       </button>
       <div className="care-today-summary">
         <div className="care-today-copy">
-          <button
-            type="button"
-            className="care-today-status"
-            onClick={onEmergency}
-            aria-label={`${overview.status} 긴급 알림 시연 열기`}
-          >
-            {overview.status}
-          </button>
+          {onEmergency ? (
+            <button
+              type="button"
+              className="care-today-status care-today-status--interactive"
+              onClick={onEmergency}
+              aria-label={`${overview.status}: 돌봄 긴급 알림 보기`}
+            >
+              {overview.status}
+            </button>
+          ) : (
+            <span className="care-today-status">{overview.status}</span>
+          )}
           <h2>{overview.message.map((line) => <span key={line}>{line}</span>)}</h2>
           <p>최근 사용 가전: <strong>{overview.lastAppliance}</strong></p>
         </div>
@@ -158,17 +153,17 @@ function CareTodayCard({ overview, recentCare, onRefresh, onEmergency }) {
   );
 }
 
-function EmergencyAlertCard({ onDetails }) {
+function EmergencyAlertCard({ count, onDetails }) {
   return (
-    <section className="care-emergency-card" aria-label="돌봄 긴급 알림 1건">
+    <section className="care-emergency-card" aria-label={`돌봄 긴급 알림 ${count}건`}>
       <img src={asset('alert-error.svg')} alt="" />
-      <h2>확인이 필요한 돌봄 긴급 알림이<br />1건 있어요.</h2>
+      <h2>확인이 필요한 돌봄 긴급 알림이<br />{count}건 있어요.</h2>
       <button type="button" onClick={onDetails}>자세히 보기</button>
     </section>
   );
 }
 
-function CareEmergencyPage({ onBack }) {
+function CareEmergencyPage({ alert, onBack }) {
   return (
     <div className="neulbom-page neulbom-page--emergency">
       <header className="neulbom-header care-emergency-header">
@@ -178,17 +173,17 @@ function CareEmergencyPage({ onBack }) {
         <h1>돌봄 긴급 알림</h1>
       </header>
       <main className="care-emergency-content">
-        <section className="care-emergency-overview" aria-label="식사 확인 긴급 알림">
+        <section className="care-emergency-overview" aria-label={`${alert.title} 긴급 알림`}>
           <strong>확인 필요</strong>
-          <h2>식사 확인이 필요해요.</h2>
-          <p>점심 식사가 평소보다 지연되고 있어요.</p>
+          <h2>{alert.title}</h2>
+          <p>{alert.description}</p>
         </section>
 
         <section className="care-emergency-history" aria-labelledby="care-emergency-history-title">
           <h2 id="care-emergency-history-title">대응 이력</h2>
           <div className="care-emergency-history-list">
-            {emergencyHistory.map((item) => (
-              <div className="care-emergency-history-row" key={`${item.time}-${item.action}`}>
+            {alert.history.map((item) => (
+              <div className="care-emergency-history-row" key={item.attempt}>
                 <time>{item.time}</time>
                 <div>
                   <strong>{item.action}</strong>
@@ -426,11 +421,13 @@ export default function NeulbomPage({
   applianceUsage = applianceUsageMock,
   careOverview = careOverviewMock,
   recentCare = recentCareMock,
+  emergencyAlerts = [],
 }) {
   const [activeTab, setActiveTab] = useState('care');
   const [subPage, setSubPage] = useState('dashboard');
   const [subPageReturn, setSubPageReturn] = useState('dashboard');
-  const [careDemoPhase, setCareDemoPhase] = useState('normal');
+  const [showEmergencySummary, setShowEmergencySummary] = useState(false);
+  const [showEmergencyDetail, setShowEmergencyDetail] = useState(false);
   const [mealMedicationSettings, setMealMedicationSettings] = useState(mealMedicationCareMock);
   const [calmCareEnabled, setCalmCareEnabled] = useState(false);
   const [guardians, setGuardians] = useState([]);
@@ -483,8 +480,17 @@ export default function NeulbomPage({
     setSubPage('report-share');
   };
 
-  if (careDemoPhase === 'detail') {
-    return <CareEmergencyPage onBack={() => setCareDemoPhase('resolved')} />;
+  const latestEmergency = emergencyAlerts[0] || null;
+
+  useEffect(() => {
+    if (!latestEmergency) {
+      setShowEmergencySummary(false);
+      setShowEmergencyDetail(false);
+    }
+  }, [latestEmergency]);
+
+  if (showEmergencyDetail && latestEmergency) {
+    return <CareEmergencyPage alert={latestEmergency} onBack={() => setShowEmergencyDetail(false)} />;
   }
 
   if (subPage === 'voice') {
@@ -548,9 +554,6 @@ export default function NeulbomPage({
     ...careOverview,
     status: '돌봄 중',
     lastAppliance: '냉장고',
-    ...(careDemoPhase === 'resolved'
-      ? { message: ['오늘도 평소처럼', '일상을 보내고 있어요'] }
-      : {}),
   };
 
   return (
@@ -560,14 +563,17 @@ export default function NeulbomPage({
         <PageTabs activeTab={activeTab} onChange={setActiveTab} />
         {activeTab === 'care' ? (
           <div className="care-content tab-panel tab-panel--care" key="care">
-            {careDemoPhase === 'alert' ? (
-              <EmergencyAlertCard onDetails={() => setCareDemoPhase('detail')} />
+            {showEmergencySummary && latestEmergency ? (
+              <EmergencyAlertCard
+                count={emergencyAlerts.length}
+                onDetails={() => setShowEmergencyDetail(true)}
+              />
             ) : (
               <CareTodayCard
                 overview={displayedCareOverview}
                 recentCare={recentCare}
                 onRefresh={onRefreshCare}
-                onEmergency={() => setCareDemoPhase('alert')}
+                onEmergency={latestEmergency ? () => setShowEmergencySummary(true) : undefined}
               />
             )}
             <ManagedSummary />

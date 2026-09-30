@@ -62,29 +62,46 @@ public class AlarmDeliveryScheduler {
             deliveries.fail(delivery.deliveryId(), "UNSUPPORTED_ALARM_TYPE");
             return;
         }
-        RegisteredVoice voice;
+        AlarmDeliveryAttempt attempt;
         try {
-            voice = voices.findLatestVerified(delivery.residentThinQId()).orElse(null);
+            attempt = deliveries.resolveAttempt(delivery, properties.escalationDelay());
         } catch (RuntimeException error) {
-            deliveries.fail(delivery.deliveryId(), "VOICE_STORE_FAILED");
-            log.warn("Alarm delivery failed: delivery_id={}, code=VOICE_STORE_FAILED",
+            deliveries.fail(delivery.deliveryId(), "ESCALATION_CONTEXT_FAILED");
+            log.warn("Alarm delivery failed: delivery_id={}, code=ESCALATION_CONTEXT_FAILED",
                     delivery.deliveryId());
             return;
         }
-        if (voice == null) {
-            deliveries.fail(delivery.deliveryId(), "NO_VERIFIED_VOICE");
-            log.info("Alarm delivery skipped: delivery_id={}, code=NO_VERIFIED_VOICE",
-                    delivery.deliveryId());
-            return;
+        log.info("Alarm delivery execution: alarm_id={}, delivery_id={}, attempt={}, scheduled_for={}",
+                delivery.alarmId(), delivery.deliveryId(), attempt.number(), delivery.scheduledFor());
+        String voiceId = attempt.voiceId();
+        if (!attempt.isSecond()) {
+            RegisteredVoice voice;
+            try {
+                voice = voices.findLatestVerified(delivery.residentThinQId()).orElse(null);
+            } catch (RuntimeException error) {
+                deliveries.fail(delivery.deliveryId(), "VOICE_STORE_FAILED");
+                log.warn("Alarm delivery failed: delivery_id={}, code=VOICE_STORE_FAILED",
+                        delivery.deliveryId());
+                return;
+            }
+            if (voice == null) {
+                deliveries.fail(delivery.deliveryId(), "NO_VERIFIED_VOICE");
+                log.info("Alarm delivery skipped: delivery_id={}, code=NO_VERIFIED_VOICE",
+                        delivery.deliveryId());
+                return;
+            }
+            voiceId = voice.voiceId();
         }
         if (!playback.isReady(delivery.residentThinQId())) {
+            log.info("Alarm delivery deferred: delivery_id={}, attempt={}, code=PLAYBACK_NOT_READY",
+                    delivery.deliveryId(), attempt.number());
             retryOrFail(delivery, now, "PLAYBACK_NOT_READY");
             return;
         }
 
         byte[] audio;
         try {
-            audio = textToSpeech.generateSpeech(voice.voiceId(), phrase);
+            audio = textToSpeech.generateSpeech(voiceId, phrase);
         } catch (ElevenLabsApiException error) {
             String failureCode = error.getUpstreamStatus() == 404
                     ? "VOICE_PROVIDER_NOT_FOUND" : "TTS_FAILED";
@@ -112,7 +129,12 @@ public class AlarmDeliveryScheduler {
                 retryOrFail(delivery, now, result.failureCode());
                 return;
             }
-            deliveries.recordPlaybackOutcome(delivery, result);
+            deliveries.recordPlaybackOutcome(
+                    delivery, attempt, voiceId, result, properties.escalationDelay());
+            log.info("Alarm delivery outcome persisted: alarm_id={}, delivery_id={}, attempt={}, "
+                            + "status={}, started_at={}",
+                    delivery.alarmId(), delivery.deliveryId(), attempt.number(),
+                    result.status(), result.startedAt());
         } catch (AlarmPlaybackException error) {
             deliveries.fail(delivery.deliveryId(), error.code());
             log.warn("Alarm playback request failed: delivery_id={}, code={}",

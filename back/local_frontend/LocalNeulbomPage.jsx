@@ -67,6 +67,7 @@ function ConnectedNeulbomPage({ onBack }) {
       applianceUsageResetKey={serverToday || 'server-date-unavailable'}
       careOverview={view.overview}
       recentCare={view.recentCare}
+      emergencyAlerts={view.emergencyAlerts}
       reportHomeId={REPORT_HOME_ID}
       onRefreshCare={refreshDashboard}
       careStatusAriaLabel={serverToday ? `${serverToday} 돌봄 상태` : '서버 날짜 확인 실패'}

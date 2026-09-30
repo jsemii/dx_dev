@@ -75,6 +75,39 @@ def care_row(care_id, code, when, subject, *, response_type=None, response_id=No
     }
 
 
+def alarm_row(care_id, attempt, when, care_type, *, suffix="1"):
+    subject = "식사" if care_type == "MEAL" else "복약"
+    metric_code = (
+        "care_guidance_sent_event" if attempt == 1
+        else "care_emergency_alert_sent_event"
+    )
+    delivery_id = f"{attempt}{suffix * 7}-{suffix * 4}-4{suffix * 3}-8{suffix * 3}-{suffix * 12}"
+    return {
+        "reporting_id": f"report-{care_id}-attempt-{attempt}",
+        "data_date": DAY.isoformat(),
+        "event_time": when,
+        "record_type": "event",
+        "subject_type": "care",
+        "subject": subject,
+        "metric_code": metric_code,
+        "value": 1,
+        "unit": "event",
+        "data_status": "derived_care_event",
+        "evidence": (
+            f"source=public.care_event;care_event_id={care_id};"
+            f"alarm_delivery_id={delivery_id};attempt={attempt};channel=SPEAKER"
+        ),
+    }
+
+
+def emergency_care(care_id, care_type, guidance_at="2026-09-23T10:02:00+09:00"):
+    return {
+        "care_event_id": care_id,
+        "care_type": care_type,
+        "guidance_at": guidance_at,
+    }
+
+
 def metric(code, value):
     return {
         "reporting_id": f"metric-{code}",
@@ -210,6 +243,91 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(recent[1]["title"], "주방에서 식사를 안내했어요.")
         self.assertEqual(recent[1]["detail"], "식사 행동이 확인됐어요.")
 
+    def test_meal_emergency_uses_two_real_playback_times_in_chronological_order(self):
+        care_id = "88888888-8888-4888-8888-888888888888"
+        snapshot = base_snapshot()
+        snapshot["emergency"] = [emergency_care(care_id, "MEAL")]
+        snapshot["reporting"].extend([
+            alarm_row(care_id, 2, "2026-09-23T10:03:30+09:00", "MEAL"),
+            alarm_row(care_id, 1, "2026-09-23T10:02:00+09:00", "MEAL"),
+        ])
+
+        result = self.build(snapshot)
+
+        self.assertTrue(result["care_overview"]["has_emergency_alert"])
+        self.assertEqual(result["care_overview"]["emergency_alert_count"], 1)
+        self.assertEqual(result["emergency_alerts"], [{
+            "care_event_id": care_id,
+            "care_type": "MEAL",
+            "title": "식사 확인이 필요해요.",
+            "description": "식사가 평소보다 지연되고 있어요.",
+            "history": [
+                {"attempt": 1, "time": "10:02:00", "action": "1차 알림", "detail": "음성 안내 · 스피커"},
+                {"attempt": 2, "time": "10:03:30", "action": "2차 알림", "detail": "음성 안내 · 스피커"},
+            ],
+        }])
+
+    def test_medication_emergency_copy_and_newest_first_sorting(self):
+        meal_id = "88888888-8888-4888-8888-888888888888"
+        medication_id = "99999999-9999-4999-8999-999999999999"
+        snapshot = base_snapshot()
+        snapshot["emergency"] = [
+            emergency_care(meal_id, "MEAL"),
+            emergency_care(medication_id, "MEDICATION", "2026-09-23T11:00:00+09:00"),
+        ]
+        snapshot["reporting"].extend([
+            alarm_row(meal_id, 1, "2026-09-23T10:02:00+09:00", "MEAL"),
+            alarm_row(meal_id, 2, "2026-09-23T10:03:30+09:00", "MEAL"),
+            alarm_row(medication_id, 1, "2026-09-23T11:00:00+09:00", "MEDICATION", suffix="2"),
+            alarm_row(medication_id, 2, "2026-09-23T11:01:30+09:00", "MEDICATION", suffix="2"),
+        ])
+
+        alerts = self.build(snapshot)["emergency_alerts"]
+
+        self.assertEqual([item["care_type"] for item in alerts], ["MEDICATION", "MEAL"])
+        self.assertEqual(alerts[0]["title"], "복약 확인이 필요해요.")
+        self.assertEqual(alerts[0]["description"], "복약이 평소보다 지연되고 있어요.")
+
+    def test_emergency_is_hidden_until_both_success_events_exist(self):
+        care_id = "88888888-8888-4888-8888-888888888888"
+        snapshot = base_snapshot()
+        snapshot["emergency"] = [emergency_care(care_id, "MEAL")]
+        snapshot["reporting"].append(
+            alarm_row(care_id, 1, "2026-09-23T10:02:00+09:00", "MEAL")
+        )
+
+        result = self.build(snapshot)
+
+        self.assertEqual(result["emergency_alerts"], [])
+        self.assertFalse(result["care_overview"]["has_emergency_alert"])
+        self.assertEqual(result["care_overview"]["emergency_alert_count"], 0)
+
+    def test_existing_evidence_links_both_alarm_attempts(self):
+        care_id = "88888888-8888-4888-8888-888888888888"
+        first = alarm_row(care_id, 1, "2026-09-23T10:02:00+09:00", "MEAL")
+        second = alarm_row(care_id, 2, "2026-09-23T10:03:30+09:00", "MEAL")
+        snapshot = base_snapshot()
+        snapshot["emergency"] = [emergency_care(care_id, "MEAL")]
+        snapshot["reporting"].extend([first, second])
+
+        result = self.build(snapshot)
+
+        self.assertEqual(len(result["emergency_alerts"]), 1)
+        self.assertEqual(result["emergency_alerts"][0]["care_event_id"], care_id)
+
+    def test_deleted_care_event_removes_emergency_even_if_legacy_rows_are_present(self):
+        care_id = "88888888-8888-4888-8888-888888888888"
+        snapshot = base_snapshot()
+        snapshot["reporting"].extend([
+            alarm_row(care_id, 1, "2026-09-23T10:02:00+09:00", "MEAL"),
+            alarm_row(care_id, 2, "2026-09-23T10:03:30+09:00", "MEAL"),
+        ])
+
+        result = self.build(snapshot)
+
+        self.assertEqual(result["emergency_alerts"], [])
+        self.assertFalse(result["care_overview"]["has_emergency_alert"])
+
     def test_incomplete_early_and_missing_source_care_are_excluded(self):
         snapshot = base_snapshot()
         snapshot["reporting"].append(care_row(
@@ -291,27 +409,20 @@ class DashboardTests(unittest.TestCase):
     def test_today_attention_uses_full_day_events_instead_of_daily_metrics(self):
         today = date(2026, 9, 30)
         unanswered_id = "77777777-7777-4777-8777-777777777777"
+        emergency_id = "88888888-8888-4888-8888-888888888888"
         snapshot = {
             "appliance": [],
             "behavior": [],
+            "emergency": [emergency_care(
+                emergency_id, "MEAL", "2026-09-30T22:00:00+09:00",
+            )],
             "reporting": [
                 care_row(
                     unanswered_id, "care_guidance_sent_event",
                     "2026-09-30T21:00:00+09:00", "휴식",
                 ),
-                {
-                    "reporting_id": "future-emergency",
-                    "data_date": today.isoformat(),
-                    "event_time": "2026-09-30T22:00:00+09:00",
-                    "record_type": "event",
-                    "subject_type": "care",
-                    "subject": "응급",
-                    "metric_code": "care_emergency_alert_sent_event",
-                    "value": 1,
-                    "unit": "event",
-                    "data_status": "derived_care_event",
-                    "evidence": "test",
-                },
+                alarm_row(emergency_id, 1, "2026-09-30T22:00:00+09:00", "MEAL"),
+                alarm_row(emergency_id, 2, "2026-09-30T22:01:30+09:00", "MEAL"),
                 {**metric("care_no_response_count", 0), "data_date": today.isoformat()},
                 {**metric("care_emergency_alert_count", 0), "data_date": today.isoformat()},
             ],
@@ -369,14 +480,19 @@ class RepositoryTests(unittest.TestCase):
         with patch.object(self.repository, "_query", return_value=[reporting]) as query:
             result = self.repository.fetch_daily_data("home_23", DAY)
         sql, params = query.call_args.args
-        self.assertEqual(result, {"appliance": [], "behavior": [], "reporting": []})
+        self.assertEqual(result, {
+            "appliance": [], "behavior": [], "reporting": [], "emergency": [],
+        })
         self.assertEqual(params, {"home_id": "home_23", "data_date": "2026-09-23"})
         self.assertIn(":'home_id'", sql)
         self.assertIn("public.appliance_data", sql)
         self.assertIn("public.behavior_data", sql)
         self.assertIn("public.reporting_data", sql)
+        self.assertNotIn("d.care_event_id", sql)
+        self.assertIn("FROM public.care_event", sql)
+        self.assertIn("c.emergency_alerted = true", sql)
+        self.assertIn("c.care_status::text = 'EMERGENCY'", sql)
         self.assertNotIn("appliance_data_one_person", sql)
-        self.assertNotIn("FROM public.care_event", sql)
 
     def test_no_password_in_command_and_read_only_option(self):
         with patch("back.api.appliance_api.subprocess.run") as run:
@@ -394,10 +510,11 @@ class RepositoryTests(unittest.TestCase):
             with self.assertRaises(DatabaseUnavailable):
                 self.repository.fetch_daily_data("home_23", DAY)
 
-    def test_source_contains_no_deleted_table_query(self):
+    def test_source_contains_no_deleted_table_query_and_only_reads_emergency_care(self):
         source = Path("back/api/appliance_api.py").read_text(encoding="utf-8")
         self.assertNotIn("appliance_data_one_person", source)
-        self.assertNotIn("FROM public.care_event", source)
+        self.assertIn("FROM public.care_event", source)
+        self.assertIn("emergency_alerted = true", source)
 
 
 class HttpTests(unittest.TestCase):

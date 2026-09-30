@@ -85,9 +85,17 @@ cd /Users/jangsemi/dx_dev/wifi-care-project/back/voice
 공유 내부 토큰으로 인증한 Anger API를 거쳐 현재 활성 `/player` 소켓으로만
 전달됩니다.
 
+1차 음성이 Player에서 `COMPLETED`로 확인되면 같은 돌봄 사건에 2차 전달을
+예약합니다. 2차 전달은 1차 재생 시작 시각에서 `ALARM_ESCALATION_SECONDS`
+(기본 90초) 뒤에 실행하며, 1차에서 사용한 같은 voice ID와 같은 문구를
+사용합니다. 2차도 `COMPLETED`일 때만 `care_event`를 `EMERGENCY`로 전환하고
+1·2차 실제 재생 이력을 `reporting_data`에 남깁니다. 3차 전달은 만들지 않습니다.
+
 처음 배포할 때 `db/create_alarm_delivery.sql`을 한 번 적용해야 합니다. 이
 migration은 `(alarm_id, scheduled_for)` 중복 실행 방지 이력과 실제 `PLAYING`
-확인 후 생성되는 `care_event`의 연결 키를 추가합니다.
+확인 후 생성되는 `care_event`의 연결 키를 추가합니다. 1·2차 대응 이력은 기존
+`reporting_data.evidence`의 `care_event_id`로 연결하므로 reporting 스키마 변경은
+필요하지 않습니다.
 
 필요한 환경변수 이름은 다음과 같습니다. Voice와 Anger에는 동일한
 `PLAYBACK_INTERNAL_TOKEN`(32자 이상)을 설정하고, Anger replica는 메모리 기반
@@ -97,6 +105,7 @@ migration은 `(alarm_id, scheduled_for)` 중복 실행 방지 이력과 실제 `
 ALARM_DELIVERY_ENABLED=false
 ALARM_SCAN_INTERVAL_MS=5000
 ALARM_DELIVERY_GRACE_MS=120000
+ALARM_ESCALATION_SECONDS=90
 ALARM_AUDIO_MAX_BYTES=1048576
 ALARM_PLAYBACK_TIMEOUT_MS=150000
 ANGER_INTERNAL_BASE_URL=http://nulbom-anger:3001
