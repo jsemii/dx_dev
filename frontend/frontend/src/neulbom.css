@@ -190,21 +190,34 @@
 }
 
 .care-today-status {
+  display: inline-block;
   margin: 0;
   padding: 4px 10px;
-  border: 0;
   border-radius: 58px;
   background: #46bf84;
   color: #fff;
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
+}
+
+button.care-today-status {
+  border: 0;
+  font-family: inherit;
+}
+
+.care-today-status--interactive {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
-.care-today-status:active {
+.care-today-status--interactive:active {
   opacity: 0.72;
+}
+
+.care-today-status--interactive:focus-visible {
+  outline: 2px solid #1a6644;
+  outline-offset: 2px;
 }
 
 .care-today-copy h2 {
@@ -441,7 +454,7 @@
 
 .care-emergency-history-list {
   width: 100%;
-  padding: 4px 12px;
+  padding: 0 12px;
   border-radius: 8px;
   background: #fff;
 }
@@ -449,9 +462,9 @@
 .care-emergency-history-row {
   display: flex;
   width: 100%;
-  min-height: 58px;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 0;
   border-bottom: 1px solid #e9ebef;
 }
 
@@ -460,12 +473,14 @@
 }
 
 .care-emergency-history-row time {
-  width: 42px;
-  flex: 0 0 42px;
+  width: 68px;
+  flex: 0 0 68px;
   color: #111;
   font-size: 15px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .care-emergency-history-row > div {
@@ -473,21 +488,28 @@
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 5px;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .care-emergency-history-row strong {
+  display: block;
+  width: 100%;
   color: #111;
   font-size: 15px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.4;
+  overflow-wrap: break-word;
 }
 
 .care-emergency-history-row span {
+  display: block;
+  width: 100%;
   color: #616c7e;
   font-size: 13px;
   font-weight: 400;
-  line-height: 1.2;
+  line-height: 1.4;
+  overflow-wrap: break-word;
 }
 
 .care-emergency-call-area {

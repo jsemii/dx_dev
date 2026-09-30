@@ -4,12 +4,15 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.ZoneId;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AlarmDeliveryProperties {
     public static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final Logger log = LoggerFactory.getLogger(AlarmDeliveryProperties.class);
 
     private final boolean enabled;
     private final Duration grace;
@@ -17,6 +20,7 @@ public class AlarmDeliveryProperties {
     private final URI angerBaseUri;
     private final String internalToken;
     private final Duration requestTimeout;
+    private final Duration escalationDelay;
 
     public AlarmDeliveryProperties(
             @Value("${alarm.delivery.enabled:false}") boolean enabled,
@@ -24,8 +28,9 @@ public class AlarmDeliveryProperties {
             @Value("${alarm.delivery.max-audio-bytes:1048576}") int maxAudioBytes,
             @Value("${alarm.delivery.anger-base-url:http://127.0.0.1:3001}") String angerBaseUrl,
             @Value("${alarm.delivery.internal-token:}") String internalToken,
-            @Value("${alarm.delivery.request-timeout-ms:150000}") long requestTimeoutMs) {
-        if (graceMs < 1 || maxAudioBytes < 1 || requestTimeoutMs < 1) {
+            @Value("${alarm.delivery.request-timeout-ms:150000}") long requestTimeoutMs,
+            @Value("${alarm.delivery.escalation-seconds}") long escalationSeconds) {
+        if (graceMs < 1 || maxAudioBytes < 1 || requestTimeoutMs < 1 || escalationSeconds < 1) {
             throw new IllegalArgumentException("알림 실행 설정이 올바르지 않습니다.");
         }
         this.enabled = enabled;
@@ -34,6 +39,9 @@ public class AlarmDeliveryProperties {
         this.angerBaseUri = URI.create(angerBaseUrl);
         this.internalToken = internalToken == null ? "" : internalToken;
         this.requestTimeout = Duration.ofMillis(requestTimeoutMs);
+        this.escalationDelay = Duration.ofSeconds(escalationSeconds);
+        log.info("Alarm delivery configuration: enabled={}, escalation_seconds={}",
+                enabled, escalationSeconds);
     }
 
     public boolean enabled() { return enabled; }
@@ -42,5 +50,6 @@ public class AlarmDeliveryProperties {
     public URI angerBaseUri() { return angerBaseUri; }
     public String internalToken() { return internalToken; }
     public Duration requestTimeout() { return requestTimeout; }
+    public Duration escalationDelay() { return escalationDelay; }
     public boolean hasValidInternalToken() { return internalToken.length() >= 32; }
 }

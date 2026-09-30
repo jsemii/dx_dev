@@ -28,6 +28,9 @@ HOME_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 CARE_EVENT_ID_PATTERN = re.compile(r"(?:^|;)care_event_id=([0-9a-fA-F-]{36})(?:;|$)")
 RESPONSE_TYPE_PATTERN = re.compile(r"(?:^|;)response_event_type=([^;]+)(?:;|$)")
 RESPONSE_ID_PATTERN = re.compile(r"(?:^|;)response_event_id=([^;]+)(?:;|$)")
+ATTEMPT_PATTERN = re.compile(r"(?:^|;)attempt=([12])(?:;|$)")
+CHANNEL_PATTERN = re.compile(r"(?:^|;)channel=([^;]+)(?:;|$)")
+DELIVERY_ID_PATTERN = re.compile(r"(?:^|;)alarm_delivery_id=([0-9a-fA-F-]{36})(?:;|$)")
 CARE_CODES = {"care_guidance_sent_event", "care_response_confirmed_event"}
 APPLIANCE_NAMES = {
     "AIR_CONDITIONER": "에어컨", "AIR_FRYER": "에어프라이어",
@@ -148,6 +151,16 @@ WITH requested AS (
        OR (d.record_type = 'metric' AND d.metric_code IN (
             'care_no_response_count', 'care_emergency_alert_count', 'tv_usage_minutes'
        ))
+), emergency_care AS (
+    SELECT c.care_event_id::text AS care_event_id,
+           c.care_type::text AS care_type,
+           c.guidance_at
+    FROM public.care_event c
+    JOIN requested r
+      ON r.resident_thinq_id = c.resident_thinq_id
+     AND (c.guidance_at AT TIME ZONE 'Asia/Seoul')::date = r.data_date
+    WHERE c.emergency_alerted = true
+      AND c.care_status::text = 'EMERGENCY'
 )
 SELECT json_build_object('kind', 'appliance', 'payload', a.appliances)::text
 FROM public.appliance_data a
@@ -165,6 +178,15 @@ SELECT json_build_object(
     )
 )::text
 FROM reporting_rows
+UNION ALL
+SELECT json_build_object(
+    'kind', 'emergency',
+    'payload', COALESCE(
+        json_agg(row_to_json(emergency_care) ORDER BY guidance_at DESC, care_event_id),
+        '[]'::json
+    )
+)::text
+FROM emergency_care
 """
 
     CAREGIVERS_SQL = r"""
@@ -268,7 +290,9 @@ COMMIT;
             self.DASHBOARD_SQL,
             {"home_id": home_id, "data_date": day.isoformat()},
         )
-        payloads: dict[str, object] = {"appliance": [], "behavior": [], "reporting": []}
+        payloads: dict[str, object] = {
+            "appliance": [], "behavior": [], "reporting": [], "emergency": [],
+        }
         seen: set[str] = set()
         try:
             for raw in rows:
@@ -455,6 +479,33 @@ def _care_evidence(row: dict) -> tuple[str, str | None, str | None]:
     return care_match.group(1), type_match.group(1) if type_match else None, id_match.group(1) if id_match else None
 
 
+def _alarm_evidence(row: dict) -> tuple[str, int, str, str]:
+    evidence = row.get("evidence")
+    if not isinstance(evidence, str):
+        raise ValueError("invalid alarm evidence")
+    care_match = CARE_EVENT_ID_PATTERN.search(evidence)
+    attempt_match = ATTEMPT_PATTERN.search(evidence)
+    channel_match = CHANNEL_PATTERN.search(evidence)
+    delivery_match = DELIVERY_ID_PATTERN.search(evidence)
+    if care_match:
+        try:
+            care_id = str(uuid.UUID(care_match.group(1)))
+        except ValueError as error:
+            raise ValueError("invalid care event id") from error
+    else:
+        raise ValueError("missing care event id")
+    if not attempt_match or not channel_match or not delivery_match:
+        raise ValueError("incomplete alarm evidence")
+    try:
+        delivery_id = str(uuid.UUID(delivery_match.group(1)))
+    except ValueError as error:
+        raise ValueError("invalid alarm delivery id") from error
+    return (
+        care_id, int(attempt_match.group(1)),
+        channel_match.group(1), delivery_id,
+    )
+
+
 def _care_copy(subject: str, source: dict) -> tuple[str, str]:
     if subject == "식사":
         location = source.get("location")
@@ -525,6 +576,88 @@ def _recent_care(
         item.pop("_sort_time")
     answered_ids = {care_id for care_id, group in groups.items() if len(group["response"]) == 1}
     return recent, len(visible_guidance_ids - answered_ids)
+
+
+def _emergency_alerts(raw_emergencies: object, reporting: list[dict], day: date) -> list[dict]:
+    if not isinstance(raw_emergencies, list):
+        raise ValueError("emergency care must be an array")
+    reporting_by_care: dict[str, dict[int, list[dict]]] = defaultdict(
+        lambda: {1: [], 2: []}
+    )
+    for row in reporting:
+        if (
+            row.get("record_type") != "event"
+            or row.get("subject_type") != "care"
+            or row.get("metric_code") not in {
+                "care_guidance_sent_event", "care_emergency_alert_sent_event",
+            }
+        ):
+            continue
+        try:
+            care_id, attempt, channel, _ = _alarm_evidence(row)
+            occurred_at = _reporting_event_time(row.get("event_time"))
+        except ValueError:
+            continue
+        expected_code = (
+            "care_guidance_sent_event" if attempt == 1
+            else "care_emergency_alert_sent_event"
+        )
+        if channel != "SPEAKER" or row.get("metric_code") != expected_code:
+            continue
+        reporting_by_care[care_id][attempt].append({**row, "_occurred_at": occurred_at})
+
+    alerts: list[dict] = []
+    copy = {
+        "MEAL": ("식사", "식사 확인이 필요해요.", "식사가 평소보다 지연되고 있어요."),
+        "MEDICATION": ("복약", "복약 확인이 필요해요.", "복약이 평소보다 지연되고 있어요."),
+    }
+    for emergency in raw_emergencies:
+        if not isinstance(emergency, dict):
+            raise ValueError("invalid emergency care")
+        care_id = emergency.get("care_event_id")
+        care_type = emergency.get("care_type")
+        if not isinstance(care_id, str) or not isinstance(care_type, str) or care_type not in copy:
+            raise ValueError("invalid emergency care fields")
+        try:
+            uuid.UUID(care_id)
+        except ValueError as error:
+            raise ValueError("invalid emergency care id") from error
+        attempts = reporting_by_care.get(care_id, {1: [], 2: []})
+        if len(attempts[1]) != 1 or len(attempts[2]) != 1:
+            continue
+        first, second = attempts[1][0], attempts[2][0]
+        if first["_occurred_at"].date() != day or second["_occurred_at"].date() != day:
+            continue
+        if second["_occurred_at"] < first["_occurred_at"]:
+            continue
+        subject, title, description = copy[care_type]
+        if first.get("subject") != subject or second.get("subject") != subject:
+            continue
+        alerts.append({
+            "care_event_id": care_id,
+            "care_type": care_type,
+            "title": title,
+            "description": description,
+            "history": [
+                {
+                    "attempt": 1,
+                    "time": first["_occurred_at"].strftime("%H:%M:%S"),
+                    "action": "1차 알림",
+                    "detail": "음성 안내 · 스피커",
+                },
+                {
+                    "attempt": 2,
+                    "time": second["_occurred_at"].strftime("%H:%M:%S"),
+                    "action": "2차 알림",
+                    "detail": "음성 안내 · 스피커",
+                },
+            ],
+            "_sort_time": second["_occurred_at"],
+        })
+    alerts.sort(key=lambda item: item["_sort_time"], reverse=True)
+    for alert in alerts:
+        alert.pop("_sort_time")
+    return alerts
 
 
 def _public_event(event: dict) -> dict:
@@ -602,24 +735,19 @@ def build_dashboard_response(home_id: str, day: date, snapshot: dict, *, now: da
     reporting = snapshot.get("reporting")
     if not isinstance(reporting, list) or any(not isinstance(row, dict) for row in reporting):
         raise ValueError("reporting rows must be an array")
+    emergency_alerts = _emergency_alerts(snapshot.get("emergency", []), reporting, day)
     recent_care, event_unanswered = _recent_care(
         reporting, appliances, behaviors, day, time_cutoff,
     )
     if not is_today:
         unanswered_metric = _metric_value(reporting, "care_no_response_count")
-        emergency_metric = _metric_value(reporting, "care_emergency_alert_count")
         has_unanswered = (
             unanswered_metric if unanswered_metric is not None else Decimal(event_unanswered)
         ) > 0
-        has_emergency = (emergency_metric or Decimal(0)) > 0
+        has_emergency = bool(emergency_alerts)
     else:
         has_unanswered = event_unanswered > 0
-        has_emergency = any(
-            row.get("record_type") == "event" and row.get("subject_type") == "care"
-            and row.get("metric_code") == "care_emergency_alert_sent_event"
-            and _reporting_event_time(row.get("event_time")).date() == day
-            for row in reporting
-        )
+        has_emergency = bool(emergency_alerts)
     status = "ATTENTION" if has_unanswered or has_emergency else "COMPLETED" if recent_care else "EMPTY"
     if recent_care:
         message = ["오늘의 돌봄 기록을", "확인했어요"] if is_today else ["선택한 날짜의 돌봄 기록을", "확인했어요"]
@@ -631,7 +759,9 @@ def build_dashboard_response(home_id: str, day: date, snapshot: dict, *, now: da
         "care_overview": {
             "status": status, "message": message, "completed_count": len(recent_care),
             "has_unanswered": has_unanswered, "has_emergency_alert": has_emergency,
+            "emergency_alert_count": len(emergency_alerts),
         },
+        "emergency_alerts": emergency_alerts,
         "recent_care": recent_care,
         "latest_appliance": None if latest is None else {
             "appliance_type": latest["appliance_type"], "name": latest["appliance_name"],

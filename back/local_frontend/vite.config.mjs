@@ -35,13 +35,13 @@ const careCardCall = `<CareTodayCard
                 overview={displayedCareOverview}
                 recentCare={recentCare}
                 onRefresh={onRefreshCare}
-                onEmergency={() => setCareDemoPhase('alert')}
+                onEmergency={latestEmergency ? () => setShowEmergencySummary(true) : undefined}
               />`;
 const connectedCareCardCall = `<CareTodayCard
                 overview={displayedCareOverview}
                 recentCare={recentCare}
                 onRefresh={onRefreshCare}
-                onEmergency={() => setCareDemoPhase('alert')}
+                onEmergency={latestEmergency ? () => setShowEmergencySummary(true) : undefined}
                 ariaLabel={careStatusAriaLabel}
               />`;
 

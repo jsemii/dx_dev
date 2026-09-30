@@ -72,7 +72,8 @@ const CARE_STATUS = Object.freeze({
 
 export function mapCareDashboard(response, originalCards) {
   if (!response || typeof response !== 'object') throw new Error('돌봄 응답 형식이 올바르지 않습니다.');
-  if (!response.care_overview || !Array.isArray(response.recent_care)) {
+  if (!response.care_overview || !Array.isArray(response.recent_care)
+    || !Array.isArray(response.emergency_alerts)) {
     throw new Error('돌봄 응답 형식이 올바르지 않습니다.');
   }
   const message = response.care_overview.message;
@@ -90,6 +91,32 @@ export function mapCareDashboard(response, originalCards) {
     detail: '',
     time: '',
   }];
+  const emergencyAlerts = response.emergency_alerts.map((alert) => {
+    if (!alert || typeof alert !== 'object' || !Array.isArray(alert.history)
+      || alert.history.length !== 2) {
+      throw new Error('긴급 알림 응답 형식이 올바르지 않습니다.');
+    }
+    const history = alert.history.map((item, index) => {
+      const attempt = Number(item?.attempt);
+      if (attempt !== index + 1 || !/^\d{2}:\d{2}:\d{2}$/.test(item?.time || '')
+        || typeof item?.action !== 'string' || typeof item?.detail !== 'string') {
+        throw new Error('긴급 알림 이력 형식이 올바르지 않습니다.');
+      }
+      return { attempt, time: item.time, action: item.action, detail: item.detail };
+    });
+    if (!['MEAL', 'MEDICATION'].includes(alert.care_type)
+      || typeof alert.care_event_id !== 'string'
+      || typeof alert.title !== 'string' || typeof alert.description !== 'string') {
+      throw new Error('긴급 알림 응답 형식이 올바르지 않습니다.');
+    }
+    return {
+      careEventId: alert.care_event_id,
+      careType: alert.care_type,
+      title: alert.title,
+      description: alert.description,
+      history,
+    };
+  });
   return {
     cards: mapApplianceData(response, originalCards),
     overview: {
@@ -98,6 +125,7 @@ export function mapCareDashboard(response, originalCards) {
       lastAppliance: response.latest_appliance?.name || '사용 기록 없음',
     },
     recentCare,
+    emergencyAlerts,
   };
 }
 
@@ -118,5 +146,6 @@ export function dashboardPlaceholder(originalCards, kind, detail) {
       detail: '',
       time: '',
     }],
+    emergencyAlerts: [],
   };
 }

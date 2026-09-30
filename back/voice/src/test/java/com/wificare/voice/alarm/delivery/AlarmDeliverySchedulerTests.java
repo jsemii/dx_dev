@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
@@ -36,6 +37,7 @@ class AlarmDeliverySchedulerTests {
     @BeforeEach
     void playerIsReadyByDefault() {
         when(playback.isReady(anyString())).thenReturn(true);
+        when(deliveries.resolveAttempt(any(), any())).thenReturn(AlarmDeliveryAttempt.first());
     }
 
     private AlarmDeliveryScheduler scheduler(AlarmDeliveryProperties properties) {
@@ -45,7 +47,7 @@ class AlarmDeliverySchedulerTests {
 
     private AlarmDeliveryProperties properties(boolean enabled) {
         return new AlarmDeliveryProperties(enabled, 120_000, 1_024,
-                "http://127.0.0.1:3001", "12345678901234567890123456789012", 150_000);
+                "http://127.0.0.1:3001", "12345678901234567890123456789012", 150_000, 90);
     }
 
     private AlarmDelivery delivery(String type) {
@@ -72,7 +74,8 @@ class AlarmDeliverySchedulerTests {
 
         verify(textToSpeech).generateSpeech("provider-id", "엄마~~ 밥 먹어요~~");
         verify(deliveries).markSent(DELIVERY_ID);
-        verify(deliveries).recordPlaybackOutcome(delivery, result);
+        verify(deliveries).recordPlaybackOutcome(
+                delivery, AlarmDeliveryAttempt.first(), "provider-id", result, Duration.ofSeconds(90));
     }
 
     @Test
@@ -86,6 +89,43 @@ class AlarmDeliverySchedulerTests {
         scheduler(properties(true)).execute(delivery, NOW);
 
         verify(textToSpeech).generateSpeech("provider-id", "엄마~~ 약 먹어요~~");
+    }
+
+    @Test
+    void secondMealDeliveryReusesTheFirstVoiceAndPhraseWithoutSelectingANewVoice() {
+        AlarmDelivery delivery = delivery("MEAL");
+        UUID careEventId = UUID.fromString("77777777-7777-4777-8777-777777777777");
+        AlarmDeliveryAttempt second = AlarmDeliveryAttempt.second(careEventId, "first-provider-id");
+        when(deliveries.resolveAttempt(delivery, Duration.ofSeconds(90))).thenReturn(second);
+        when(textToSpeech.generateSpeech("first-provider-id", "엄마~~ 밥 먹어요~~"))
+                .thenReturn(new byte[] { 1, 2, 3 });
+        AlarmPlaybackResult result = new AlarmPlaybackResult(
+                REQUEST_ID, "COMPLETED", NOW, NOW.plusSeconds(1), null);
+        when(playback.play(anyString(), any(), any(), any(), anyString())).thenReturn(result);
+
+        scheduler(properties(true)).execute(delivery, NOW);
+
+        verify(voices, never()).findLatestVerified(anyString());
+        verify(textToSpeech).generateSpeech("first-provider-id", "엄마~~ 밥 먹어요~~");
+        verify(deliveries).recordPlaybackOutcome(
+                delivery, second, "first-provider-id", result, Duration.ofSeconds(90));
+    }
+
+    @Test
+    void secondMedicationDeliveryReusesTheFirstVoiceAndMedicationPhrase() {
+        AlarmDelivery delivery = delivery("MEDICATION");
+        AlarmDeliveryAttempt second = AlarmDeliveryAttempt.second(
+                UUID.fromString("77777777-7777-4777-8777-777777777777"), "first-provider-id");
+        when(deliveries.resolveAttempt(delivery, Duration.ofSeconds(90))).thenReturn(second);
+        when(textToSpeech.generateSpeech(anyString(), anyString())).thenReturn(new byte[] { 1, 2, 3 });
+        AlarmPlaybackResult result = new AlarmPlaybackResult(
+                REQUEST_ID, "COMPLETED", NOW, NOW.plusSeconds(1), null);
+        when(playback.play(anyString(), any(), any(), any(), anyString())).thenReturn(result);
+
+        scheduler(properties(true)).execute(delivery, NOW);
+
+        verify(textToSpeech).generateSpeech("first-provider-id", "엄마~~ 약 먹어요~~");
+        verify(voices, never()).findLatestVerified(anyString());
     }
 
     @Test
@@ -110,7 +150,7 @@ class AlarmDeliverySchedulerTests {
         scheduler(properties(true)).execute(delivery, NOW);
 
         verify(deliveries).fail(DELIVERY_ID, "TTS_FAILED");
-        verify(deliveries, never()).recordPlaybackOutcome(any(), any());
+        verify(deliveries, never()).recordPlaybackOutcome(any(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -124,7 +164,7 @@ class AlarmDeliverySchedulerTests {
         scheduler(properties(true)).execute(delivery, NOW);
 
         verify(deliveries).fail(DELIVERY_ID, "VOICE_PROVIDER_NOT_FOUND");
-        verify(deliveries, never()).recordPlaybackOutcome(any(), any());
+        verify(deliveries, never()).recordPlaybackOutcome(any(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -167,7 +207,7 @@ class AlarmDeliverySchedulerTests {
         verify(deliveries).retry(DELIVERY_ID, "PLAYBACK_NOT_READY");
         verify(textToSpeech, never()).generateSpeech(anyString(), anyString());
         verify(playback, never()).play(anyString(), any(), any(), any(), anyString());
-        verify(deliveries, never()).recordPlaybackOutcome(any(), any());
+        verify(deliveries, never()).recordPlaybackOutcome(any(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -181,7 +221,7 @@ class AlarmDeliverySchedulerTests {
 
         verify(deliveries).fail(DELIVERY_ID, "PLAYBACK_ACK_TIMEOUT");
         verify(deliveries, never()).retry(any(), anyString());
-        verify(deliveries, never()).recordPlaybackOutcome(any(), any());
+        verify(deliveries, never()).recordPlaybackOutcome(any(), any(), anyString(), any(), any());
     }
 
     @Test
