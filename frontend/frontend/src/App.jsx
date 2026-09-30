@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import NeulbomPage from './NeulbomPage.jsx';
+import {
+  CaregiverOnboarding,
+  ResidentConsentOnboarding,
+} from './onboarding';
 
 const asset = (name) => `/assets/${name}`;
 
@@ -70,17 +74,25 @@ function CareHeader() {
   );
 }
 
-function QuickMenu() {
+function QuickMenu({ onCaregiverOnboarding, onResidentOnboarding }) {
   return (
     <div className="quick-menu" aria-label="빠른 메뉴">
-      <div className="quick-menu-card">
+      <button
+        className="quick-menu-card"
+        type="button"
+        onClick={onCaregiverOnboarding}
+      >
         <SpriteIcon name="mypage" />
         <span>마이페이지</span>
-      </div>
-      <div className="quick-menu-card">
+      </button>
+      <button
+        className="quick-menu-card"
+        type="button"
+        onClick={onResidentOnboarding}
+      >
         <SpriteIcon name="support" />
         <span>고객 지원</span>
-      </div>
+      </button>
     </div>
   );
 }
@@ -135,14 +147,17 @@ function MenuSection({ title, items, onNeulbom }) {
   );
 }
 
-function MenuScreen({ onNeulbom }) {
+function MenuScreen({ onNeulbom, onCaregiverOnboarding, onResidentOnboarding }) {
   return (
     <>
       <Header />
       <div className="main-tab-body main-tab-body--scrollable">
         <div className="screen-body">
           <div className="overview">
-            <QuickMenu />
+            <QuickMenu
+              onCaregiverOnboarding={onCaregiverOnboarding}
+              onResidentOnboarding={onResidentOnboarding}
+            />
             <EventCard />
           </div>
           <div className="menu-groups">
@@ -274,17 +289,43 @@ function BottomNavigation({ activeTab, onSelect }) {
 export default function App() {
   const [screen, setScreen] = useState('menu');
 
+  const onboarding = screen === 'onboarding-caregiver'
+    ? (
+      <CaregiverOnboarding
+        onComplete={() => setScreen('neulbom')}
+        onCancel={() => setScreen('menu')}
+      />
+    )
+    : screen === 'onboarding-resident'
+      ? (
+        <ResidentConsentOnboarding
+          onComplete={() => {}}
+          onCancel={() => setScreen('menu')}
+        />
+      )
+      : null;
+
   const renderMainTab = () => {
     if (screen === 'home') return <HomeScreen />;
     if (screen === 'device') return <DeviceScreen />;
     if (screen === 'care') return <CareScreen />;
-    return <MenuScreen onNeulbom={() => setScreen('neulbom')} />;
+    return (
+      <MenuScreen
+        onNeulbom={() => setScreen('neulbom')}
+        onCaregiverOnboarding={() => setScreen('onboarding-caregiver')}
+        onResidentOnboarding={() => setScreen('onboarding-resident')}
+      />
+    );
   };
 
   return (
     <main className="app-shell">
       <StatusBar />
-      {screen === 'neulbom' ? (
+      {onboarding ? (
+        <div className="onboarding-host" key={screen}>
+          {onboarding}
+        </div>
+      ) : screen === 'neulbom' ? (
         <div className="screen-scroll" key={screen}>
           <NeulbomPage onBack={() => setScreen('menu')} />
         </div>

@@ -1,0 +1,22 @@
+/* Scoped integration styles: no host body/root resets or fixed phone scaling. */
+.neulbom-onboarding { box-sizing: border-box; position: relative; display: flex; flex-direction: column; width: 100%; height: 100vh; height: 100dvh; min-height: 0; max-width: 768px; margin: 0 auto; overflow: hidden; background: #eff1f4; color: #111; font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; }
+.neulbom-onboarding *, .neulbom-onboarding *::before, .neulbom-onboarding *::after { box-sizing: border-box; }
+.neulbom-onboarding button, .neulbom-onboarding input { font-family: inherit; }
+.neulbom-onboarding .onboarding-header, .neulbom-onboarding .guardian-header { flex: 0 0 auto; min-height: 64px; padding-top: max(16px, env(safe-area-inset-top)); }
+.neulbom-onboarding .onboarding-header button, .neulbom-onboarding .guardian-header button { min-width: 44px; min-height: 44px; align-items: center; justify-content: center; }
+.neulbom-onboarding .onboarding-body, .neulbom-onboarding .guardian-content { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; padding-bottom: 24px; }
+.neulbom-onboarding .onboarding-footer, .neulbom-onboarding .guardian-footer { flex: 0 0 auto; padding: 16px 20px max(20px, env(safe-area-inset-bottom)); }
+.neulbom-onboarding .onboarding-intro { margin-top: clamp(24px, 12vh, 142px); }
+.neulbom-onboarding .onboarding-check, .neulbom-onboarding .guardian-agreement-label { min-height: 44px; line-height: 1.4; }
+.neulbom-onboarding .guardian-agreement-title { white-space: normal; }
+.neulbom-onboarding .guardian-complete-image { width: min(100%, 353px); height: auto; margin-left: auto; margin-right: auto; }
+.neulbom-onboarding .guardian-identity dd { overflow-wrap: anywhere; min-width: 0; }
+.neulbom-onboarding .onboarding-pattern-options button { min-height: 44px; height: auto; }
+.neulbom-onboarding .onboarding-time { flex: 1; min-width: 0; }
+.neulbom-onboarding .onboarding-irregular { flex: 1; min-width: 0; }
+.neulbom-onboarding .onboarding-field > input, .neulbom-onboarding .onboarding-date-input { min-height: 44px; font-size: 16px; }
+.neulbom-onboarding .onboarding-modal { max-width: calc(100% - 32px); max-height: 90%; overflow-y: auto; }
+.neulbom-onboarding .onboarding-toast { position: static; margin: 0 20px; flex-shrink: 0; }
+.neulbom-demo-route { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: #eff1f4; }
+.neulbom-demo-route > .neulbom-onboarding { height: auto; flex: 1; }
+.neulbom-demo-reset { flex: 0 0 auto; min-height: 44px; padding: 8px 20px max(8px, env(safe-area-inset-bottom)); border: 0; background: #eff1f4; color: #405574; font: inherit; text-decoration: underline; cursor: pointer; }
