@@ -19,6 +19,15 @@ import './neulbom.css';
 
 const asset = (name) => `/assets/${name}`;
 
+const emergencyHistory = [
+  { time: '13:00', action: '3차 알림', detail: '푸시 알림 · ThinQ 앱' },
+  { time: '12:50', action: '상태 확인', detail: '상태 분석 · 돌봄 시스템' },
+  { time: '12:33', action: '2차 알림', detail: '화면 안내 · TV' },
+  { time: '12:25', action: '상태 확인', detail: '상태 분석 · 돌봄 시스템' },
+  { time: '12:05', action: '행동 감지', detail: '센서 감지 · 냉장고' },
+  { time: '12:00', action: '1차 알림', detail: '음성 안내 · 스피커' },
+];
+
 function CareIcon({ feature }) {
   return (
     <span className={`care-feature-icon care-feature-icon--${feature.iconClass}`} aria-hidden="true">
@@ -75,7 +84,7 @@ function PageTabs({ activeTab, onChange }) {
   );
 }
 
-function CareTodayCard({ overview, recentCare, onRefresh }) {
+function CareTodayCard({ overview, recentCare, onRefresh, onEmergency }) {
   const [expanded, setExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -107,7 +116,14 @@ function CareTodayCard({ overview, recentCare, onRefresh }) {
       </button>
       <div className="care-today-summary">
         <div className="care-today-copy">
-          <span className="care-today-status">{overview.status}</span>
+          <button
+            type="button"
+            className="care-today-status"
+            onClick={onEmergency}
+            aria-label={`${overview.status} 긴급 알림 시연 열기`}
+          >
+            {overview.status}
+          </button>
           <h2>{overview.message.map((line) => <span key={line}>{line}</span>)}</h2>
           <p>최근 사용 가전: <strong>{overview.lastAppliance}</strong></p>
         </div>
@@ -139,6 +155,57 @@ function CareTodayCard({ overview, recentCare, onRefresh }) {
         <img src={asset(expanded ? 'recent-care-up.svg' : 'recent-care-down.svg')} alt="" />
       </button>
     </section>
+  );
+}
+
+function EmergencyAlertCard({ onDetails }) {
+  return (
+    <section className="care-emergency-card" aria-label="돌봄 긴급 알림 1건">
+      <img src={asset('alert-error.svg')} alt="" />
+      <h2>확인이 필요한 돌봄 긴급 알림이<br />1건 있어요.</h2>
+      <button type="button" onClick={onDetails}>자세히 보기</button>
+    </section>
+  );
+}
+
+function CareEmergencyPage({ onBack }) {
+  return (
+    <div className="neulbom-page neulbom-page--emergency">
+      <header className="neulbom-header care-emergency-header">
+        <button type="button" className="back-button" onClick={onBack} aria-label="돌봄 관리 화면으로 돌아가기">
+          <img src={asset('nav-back.svg')} alt="" />
+        </button>
+        <h1>돌봄 긴급 알림</h1>
+      </header>
+      <main className="care-emergency-content">
+        <section className="care-emergency-overview" aria-label="식사 확인 긴급 알림">
+          <strong>확인 필요</strong>
+          <h2>식사 확인이 필요해요.</h2>
+          <p>점심 식사가 평소보다 지연되고 있어요.</p>
+        </section>
+
+        <section className="care-emergency-history" aria-labelledby="care-emergency-history-title">
+          <h2 id="care-emergency-history-title">대응 이력</h2>
+          <div className="care-emergency-history-list">
+            {emergencyHistory.map((item) => (
+              <div className="care-emergency-history-row" key={`${item.time}-${item.action}`}>
+                <time>{item.time}</time>
+                <div>
+                  <strong>{item.action}</strong>
+                  <span>{item.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+      <div className="care-emergency-call-area">
+        <button type="button" className="care-emergency-call">
+          <img src={asset('care-emergency-call.svg')} alt="" />
+          <span>치매 생활자에게 전화하기</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -363,6 +430,7 @@ export default function NeulbomPage({
   const [activeTab, setActiveTab] = useState('care');
   const [subPage, setSubPage] = useState('dashboard');
   const [subPageReturn, setSubPageReturn] = useState('dashboard');
+  const [careDemoPhase, setCareDemoPhase] = useState('normal');
   const [mealMedicationSettings, setMealMedicationSettings] = useState(mealMedicationCareMock);
   const [calmCareEnabled, setCalmCareEnabled] = useState(false);
   const [guardians, setGuardians] = useState([]);
@@ -414,6 +482,10 @@ export default function NeulbomPage({
     setGuardianError('');
     setSubPage('report-share');
   };
+
+  if (careDemoPhase === 'detail') {
+    return <CareEmergencyPage onBack={() => setCareDemoPhase('resolved')} />;
+  }
 
   if (subPage === 'voice') {
     return <VoiceTrainingPage onBack={() => setSubPage(subPageReturn)} />;
@@ -472,6 +544,15 @@ export default function NeulbomPage({
     );
   }
 
+  const displayedCareOverview = {
+    ...careOverview,
+    status: '돌봄 중',
+    lastAppliance: '냉장고',
+    ...(careDemoPhase === 'resolved'
+      ? { message: ['오늘도 평소처럼', '일상을 보내고 있어요'] }
+      : {}),
+  };
+
   return (
     <div className="neulbom-page">
       <PageHeader onBack={onBack} />
@@ -479,7 +560,16 @@ export default function NeulbomPage({
         <PageTabs activeTab={activeTab} onChange={setActiveTab} />
         {activeTab === 'care' ? (
           <div className="care-content tab-panel tab-panel--care" key="care">
-            <CareTodayCard overview={careOverview} recentCare={recentCare} onRefresh={onRefreshCare} />
+            {careDemoPhase === 'alert' ? (
+              <EmergencyAlertCard onDetails={() => setCareDemoPhase('detail')} />
+            ) : (
+              <CareTodayCard
+                overview={displayedCareOverview}
+                recentCare={recentCare}
+                onRefresh={onRefreshCare}
+                onEmergency={() => setCareDemoPhase('alert')}
+              />
+            )}
             <ManagedSummary />
             <CareFeatureList
               onOpenDailyLife={() => setSubPage('daily-life')}

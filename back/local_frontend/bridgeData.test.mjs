@@ -95,6 +95,30 @@ test('local bridge keeps ThinQ ON and starts all appliance history cards collaps
   assert.match(transformed, /aria-label=\{ariaLabel\}/);
 });
 
+test('all app screens start at the top without the simulated status bar', () => {
+  const appSource = readFileSync('../../frontend/frontend/src/App.jsx', 'utf8');
+  const styles = readFileSync('../../frontend/frontend/src/styles.css', 'utf8');
+  assert.doesNotMatch(appSource, /function StatusBar|<StatusBar/);
+  assert.doesNotMatch(styles, /\.status-bar|100dvh - 56px/);
+  assert.match(styles, /\.screen-scroll[\s\S]*height: 100dvh/);
+  assert.match(styles, /\.main-tabs[\s\S]*height: 100dvh/);
+});
+
+test('care dashboard includes the emergency demo and resolves to the normal message on back', () => {
+  const source = readFileSync('../../frontend/frontend/src/NeulbomPage.jsx', 'utf8');
+  const styles = readFileSync('../../frontend/frontend/src/neulbom.css', 'utf8');
+  assert.match(source, /className="care-today-status"[\s\S]*onClick=\{onEmergency\}/);
+  assert.match(source, /확인이 필요한 돌봄 긴급 알림이/);
+  assert.match(source, /식사 확인이 필요해요\./);
+  assert.match(source, /setCareDemoPhase\('resolved'\)/);
+  assert.match(source, /status: '돌봄 중'/);
+  assert.match(source, /lastAppliance: '냉장고'/);
+  assert.match(source, /message: \['오늘도 평소처럼', '일상을 보내고 있어요'\]/);
+  assert.match(styles, /\.care-emergency-card/);
+  assert.match(styles, /\.care-emergency-history-list/);
+  assert.match(styles, /\.care-emergency-call/);
+});
+
 test('missing or unsupported data and loading never show fixed mock sums', () => {
   const empty = mapApplianceData({ appliances: ['purifier', 'refrigerator', 'tv'].map((id) => ({
     id, value: 0, unit: '회', has_data: false, events: [],

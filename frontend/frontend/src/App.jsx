@@ -25,19 +25,6 @@ function SpriteIcon({ name }) {
   return <span className={`menu-icon menu-icon--${name}`} aria-hidden="true" />;
 }
 
-function StatusBar() {
-  return (
-    <div className="status-bar" aria-label="상태 표시줄">
-      <div className="status-time">10:00</div>
-      <div className="status-levels" aria-hidden="true">
-        <img src={asset('status-cellular.svg')} alt="" />
-        <img src={asset('status-wifi.svg')} alt="" />
-        <img className="status-battery" src={asset('status-battery.svg')} alt="" />
-      </div>
-    </div>
-  );
-}
-
 function Header() {
   return (
     <header className="app-header">
@@ -320,7 +307,6 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <StatusBar />
       {onboarding ? (
         <div className="onboarding-host" key={screen}>
           {onboarding}
