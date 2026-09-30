@@ -80,7 +80,7 @@ class RegisteredVoiceControllerTests {
     @Test
     void fixedPhrasesAreRejectedFromTheDatabasePayload() {
         assertThatThrownBy(() -> controller.rename("provider-voice-id", new RenameVoiceRequest(
-                "home_23", "이름", List.of("밥 먹어요"))))
+                "home_23", "이름", List.of("엄마~~ 밥 먹어요~~"))))
                 .isInstanceOf(DuplicateSharedPhraseException.class);
         verify(profiles, never()).updateVoiceAndPhrases(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),

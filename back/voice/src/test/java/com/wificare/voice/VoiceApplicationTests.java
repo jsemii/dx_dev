@@ -112,7 +112,7 @@ class VoiceApplicationTests {
 
 	@Test
 	void ttsRequiresAVoiceId() throws IOException, InterruptedException {
-		HttpResponse<String> response = sendJson("/api/tts", "{\"voiceId\":\"\",\"text\":\"밥 먹어요.\",\"home_id\":\"home_23\"}");
+		HttpResponse<String> response = sendJson("/api/tts", "{\"voiceId\":\"\",\"text\":\"엄마~~ 밥 먹어요~~\",\"home_id\":\"home_23\"}");
 
 		assertThat(response.statusCode()).isEqualTo(400);
 		assertThat(response.body()).isEqualTo("{\"message\":\"voiceId가 필요합니다.\"}");
@@ -140,7 +140,7 @@ class VoiceApplicationTests {
 	void ttsRequiresAResidentForOwnershipVerification() throws IOException, InterruptedException {
 		HttpResponse<String> response = sendJson(
 				"/api/tts",
-				"{\"voiceId\":\"voice-id\",\"text\":\"밥 먹어요.\"}");
+				"{\"voiceId\":\"voice-id\",\"text\":\"엄마~~ 밥 먹어요~~\"}");
 
 		assertThat(response.statusCode()).isEqualTo(400);
 		assertThat(response.body()).isEqualTo("{\"message\":\"home_id가 필요합니다.\"}");

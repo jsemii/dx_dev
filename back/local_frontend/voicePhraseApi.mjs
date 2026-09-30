@@ -1,5 +1,5 @@
 const PHRASE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DEFAULT_VOICE_PHRASES = Object.freeze(['밥 먹어요', '약 먹어요']);
+const DEFAULT_VOICE_PHRASES = Object.freeze(['엄마~~ 밥 먹어요~~', '엄마~~ 약 먹어요~~']);
 
 async function checked(response, fallback) {
   if (response.ok) return response;

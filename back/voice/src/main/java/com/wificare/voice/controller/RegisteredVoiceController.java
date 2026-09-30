@@ -23,7 +23,8 @@ import com.wificare.voice.service.ElevenLabsVoiceService;
 @RestController
 @RequestMapping("/api/voice/registered")
 public class RegisteredVoiceController {
-    private static final Set<String> DEFAULT_PHRASES = Set.of("밥 먹어요", "약 먹어요");
+    private static final Set<String> DEFAULT_PHRASES = Set.of(
+            "엄마~~ 밥 먹어요~~", "엄마~~ 약 먹어요~~");
     private final VoiceProfileRepository profiles;
     private final ElevenLabsVoiceService voiceService;
 

@@ -658,11 +658,6 @@
   outline-offset: -2px;
 }
 
-.voice-phrase-processing {
-  font-size: 9px;
-  font-weight: 600;
-}
-
 .voice-bottom-action {
   position: fixed;
   z-index: 8;

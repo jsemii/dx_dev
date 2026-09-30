@@ -130,6 +130,38 @@
   gap: 12px;
 }
 
+.report-guardian-state {
+  width: 100%;
+  margin: 0;
+  padding: 12px 0;
+  color: #616c7e;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.report-guardian-state--error {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: #c22929;
+}
+
+.report-guardian-state--error p {
+  margin: 0;
+}
+
+.report-guardian-state--error button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: #eff1f4;
+  color: #4c5de9;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .report-guardian-entry {
   display: flex;
   width: 100%;
@@ -349,6 +381,14 @@
 .report-guardian-field input:focus {
   border-color: #4c5de9;
   box-shadow: 0 0 0 2px rgb(76 93 233 / 14%);
+}
+
+.report-guardian-form-error {
+  width: 313px;
+  margin: -8px 0 0;
+  color: #c22929;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .report-register-guardian-button {

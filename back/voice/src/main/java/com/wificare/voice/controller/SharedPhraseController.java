@@ -23,7 +23,8 @@ import org.springframework.http.ResponseEntity;
 @RestController
 @RequestMapping("/api/voice/shared-phrases")
 public class SharedPhraseController {
-    private static final Set<String> DEFAULT_PHRASES = Set.of("밥 먹어요", "약 먹어요");
+    private static final Set<String> DEFAULT_PHRASES = Set.of(
+            "엄마~~ 밥 먹어요~~", "엄마~~ 약 먹어요~~");
     private final VoiceProfileRepository profiles;
 
     public SharedPhraseController(VoiceProfileRepository profiles) {

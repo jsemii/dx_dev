@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import CalmCarePage from './CalmCarePage.jsx';
 import DailyReport from './DailyReport.jsx';
 import DailyLifeCarePage from './DailyLifeCarePage.jsx';
@@ -6,6 +6,7 @@ import MealMedicationCarePage from './MealMedicationCarePage.jsx';
 import PreferredContentPage from './PreferredContentPage.jsx';
 import { GuardianRegistrationPage, ReportSharePage } from './ReportSharePage.jsx';
 import VoiceTrainingPage from './VoiceTrainingPage.jsx';
+import { loadCaregivers, registerCaregiver as saveCaregiver } from './caregiverApi.js';
 import {
   applianceUsageMock,
   careFeatures,
@@ -14,7 +15,6 @@ import {
   recentCareMock,
 } from './data/neulbomData.js';
 import { mealMedicationCareMock } from './data/mealMedicationData.js';
-import { reportGuardiansMock } from './data/reportShareData.js';
 import './neulbom.css';
 
 const asset = (name) => `/assets/${name}`;
@@ -355,17 +355,47 @@ export default function NeulbomPage({
   onRefreshCare,
   onRegisterGuardian,
   onShareGuardians,
+  reportHomeId = 'home_23',
   applianceUsage = applianceUsageMock,
   careOverview = careOverviewMock,
   recentCare = recentCareMock,
-  reportGuardians = reportGuardiansMock,
 }) {
   const [activeTab, setActiveTab] = useState('care');
   const [subPage, setSubPage] = useState('dashboard');
   const [subPageReturn, setSubPageReturn] = useState('dashboard');
   const [mealMedicationSettings, setMealMedicationSettings] = useState(mealMedicationCareMock);
   const [calmCareEnabled, setCalmCareEnabled] = useState(false);
-  const [guardians, setGuardians] = useState(reportGuardians);
+  const [guardians, setGuardians] = useState([]);
+  const [guardianStatus, setGuardianStatus] = useState('loading');
+  const [guardianError, setGuardianError] = useState('');
+  const guardianControllerRef = useRef(null);
+
+  const refreshGuardians = useCallback(() => {
+    guardianControllerRef.current?.abort();
+    const controller = new AbortController();
+    guardianControllerRef.current = controller;
+    setGuardianStatus('loading');
+    setGuardianError('');
+    return loadCaregivers(fetch, reportHomeId, { signal: controller.signal })
+      .then((items) => {
+        setGuardians(items);
+        setGuardianStatus('ready');
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') return;
+        setGuardians([]);
+        setGuardianStatus('error');
+        setGuardianError(error.message || '보호자 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (guardianControllerRef.current === controller) guardianControllerRef.current = null;
+      });
+  }, [reportHomeId]);
+
+  useEffect(() => {
+    refreshGuardians();
+    return () => guardianControllerRef.current?.abort();
+  }, [refreshGuardians]);
 
   const openSubPage = (page, returnTo = 'dashboard') => {
     setSubPageReturn(returnTo);
@@ -373,14 +403,15 @@ export default function NeulbomPage({
   };
 
   const registerGuardian = async (guardian) => {
-    const savedGuardian = await onRegisterGuardian?.(guardian);
-    const nextGuardian = {
-      ...guardian,
-      ...savedGuardian,
-      id: savedGuardian?.id || `guardian-${Date.now()}`,
-    };
-
-    setGuardians((current) => [...current, nextGuardian]);
+    const savedGuardian = onRegisterGuardian
+      ? await onRegisterGuardian(guardian)
+      : await saveCaregiver(fetch, reportHomeId, guardian);
+    setGuardians((current) => [
+      ...current.filter((item) => item.id !== savedGuardian.id),
+      savedGuardian,
+    ]);
+    setGuardianStatus('ready');
+    setGuardianError('');
     setSubPage('report-share');
   };
 
@@ -422,8 +453,11 @@ export default function NeulbomPage({
     return (
       <ReportSharePage
         guardians={guardians}
+        status={guardianStatus}
+        error={guardianError}
         onBack={() => setSubPage('dashboard')}
         onAddGuardian={() => setSubPage('guardian-registration')}
+        onRetry={refreshGuardians}
         onShare={onShareGuardians}
       />
     );

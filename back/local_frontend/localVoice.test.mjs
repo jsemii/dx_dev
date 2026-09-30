@@ -48,7 +48,7 @@ test('completed voice samples track playback and expose a stop control', () => {
 });
 
 test('the local screen keeps exactly two fixed phrases before stored phrases and direct input', () => {
-  assert.match(source, /DEFAULT_VOICE_PHRASES = Object\.freeze\(\['밥 먹어요', '약 먹어요'\]\)/);
+  assert.match(source, /DEFAULT_VOICE_PHRASES = Object\.freeze\(\['엄마~~ 밥 먹어요~~', '엄마~~ 약 먹어요~~'\]\)/);
   assert.doesNotMatch(source, /일어날 시간이에요/);
   const defaults = source.indexOf('...DEFAULT_VOICE_PHRASES.map');
   const stored = source.indexOf('...sharedPhrases.map');
@@ -58,14 +58,14 @@ test('the local screen keeps exactly two fixed phrases before stored phrases and
 
 test('cancelled or blank direct input changes no draft state and calls no API', () => {
   const pending = [];
-  assert.equal(stageSharedPhrase(['밥 먹어요', '약 먹어요'], pending, null), pending);
-  assert.equal(stageSharedPhrase(['밥 먹어요', '약 먹어요'], pending, '   '), pending);
+  assert.equal(stageSharedPhrase(['엄마~~ 밥 먹어요~~', '엄마~~ 약 먹어요~~'], pending, null), pending);
+  assert.equal(stageSharedPhrase(['엄마~~ 밥 먹어요~~', '엄마~~ 약 먹어요~~'], pending, '   '), pending);
   assert.doesNotMatch(source, /saveSharedPhrase/);
 });
 
 test('confirmed direct input is trimmed into the unsaved list without persistence', () => {
   const pending = stageSharedPhrase(
-    ['밥 먹어요', '약 먹어요', '기존 문구'],
+    ['엄마~~ 밥 먹어요~~', '엄마~~ 약 먹어요~~', '기존 문구'],
     [],
     '  산책할 시간이에요  ',
   );
@@ -173,6 +173,9 @@ test('every phrase row has one internal menu slot and only persisted custom phra
   assert.match(source, /const \[openMenuId, setOpenMenuId\] = useState\(null\)/);
   assert.match(source, /event\.key === 'Escape'/);
   assert.match(source, /document\.addEventListener\('pointerdown', closeOutside\)/);
+  assert.match(source, /const processing = Boolean\(phrase\.phraseId\)[\s\S]*processingPhraseId === phrase\.phraseId/);
+  assert.match(source, /<span aria-hidden="true">⋮<\/span>/);
+  assert.doesNotMatch(source, /voice-phrase-processing|>처리 중<\/span>/);
   assert.match(styles, /\.voice-phrase-menu[\s\S]*right: 0;/);
   assert.match(styles, /\.voice-sample-row[\s\S]*width: 100%;[\s\S]*height: 48px;[\s\S]*border-radius: 24px;[\s\S]*background: #eff1f4;/);
   assert.match(styles, /\.voice-sample-list \.voice-phrase-menu-button[\s\S]*background: transparent;/);
@@ -208,7 +211,7 @@ test('custom phrase edit validation trims input and rejects invalid or duplicate
   assert.equal(validateSharedPhraseEdit(phrases, phrases[0].phrase_id, '기존 문구', ' 수정 문구 '), '수정 문구');
   assert.throws(() => validateSharedPhraseEdit(phrases, phrases[0].phrase_id, '기존 문구', '  '), /입력/);
   assert.throws(() => validateSharedPhraseEdit(phrases, phrases[0].phrase_id, '기존 문구', '가'.repeat(501)), /500자/);
-  assert.throws(() => validateSharedPhraseEdit(phrases, phrases[0].phrase_id, '기존 문구', '밥 먹어요'), /기본 문구/);
+  assert.throws(() => validateSharedPhraseEdit(phrases, phrases[0].phrase_id, '기존 문구', '엄마~~ 밥 먹어요~~'), /기본 문구/);
   assert.throws(() => validateSharedPhraseEdit(phrases, phrases[0].phrase_id, '기존 문구', '다른 문구'), /이미 등록/);
 });
 

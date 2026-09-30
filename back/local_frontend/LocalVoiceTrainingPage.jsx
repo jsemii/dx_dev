@@ -17,7 +17,7 @@ import '../../frontend/frontend/src/voice-training.css';
 import './local-voice.css';
 
 const asset = (name) => `/assets/${name}`;
-const DEFAULT_VOICE_PHRASES = Object.freeze(['밥 먹어요', '약 먹어요']);
+const DEFAULT_VOICE_PHRASES = Object.freeze(['엄마~~ 밥 먹어요~~', '엄마~~ 약 먹어요~~']);
 
 function VoiceHeader({ onBack, title = '맞춤 목소리', onDelete }) {
   return (
@@ -217,7 +217,8 @@ function VoicePhraseList({
         const isPlaying = playingPhrase === phrase.text;
         const manageable = phrase.kind === 'shared' && Boolean(phrase.phraseId)
           && typeof onEditPhrase === 'function' && typeof onDeletePhrase === 'function';
-        const processing = processingPhraseId === phrase.phraseId;
+        const processing = Boolean(phrase.phraseId)
+          && processingPhraseId === phrase.phraseId;
         const directInput = phrase.kind === 'direct';
         return (
           <div className="voice-sample-row" key={phrase.key}
@@ -245,7 +246,7 @@ function VoicePhraseList({
                   event.stopPropagation();
                   setOpenMenuId((current) => (current === phrase.phraseId ? null : phrase.phraseId));
                 }}>
-                {processing ? <span className="voice-phrase-processing">처리 중</span> : <span aria-hidden="true">⋮</span>}
+                <span aria-hidden="true">⋮</span>
               </button>
               {manageable && openMenuId === phrase.phraseId && (
                 <div className="voice-phrase-menu" role="menu">

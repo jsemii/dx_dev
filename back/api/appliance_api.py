@@ -1,4 +1,4 @@
-"""Serve a resident's daily care dashboard from PostgreSQL, read-only."""
+"""Serve care dashboard and additional-caregiver APIs from PostgreSQL."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import shutil
 import subprocess
 from typing import Callable
 from urllib.parse import parse_qs, urlsplit
+import uuid
 from zoneinfo import ZoneInfo
 
 try:  # Package execution: python -m back.api.appliance_api
@@ -50,6 +51,14 @@ class DatabaseUnavailable(Exception):
     """The configured database or required dashboard schema is unavailable."""
 
 
+class ResidentNotFound(Exception):
+    """The requested resident does not exist."""
+
+
+class DuplicateCaregiverPhone(Exception):
+    """The normalized caregiver phone number is already registered."""
+
+
 def seoul_now() -> datetime:
     return datetime.now(SEOUL)
 
@@ -73,8 +82,49 @@ def parse_inputs(query: str, *, today: date | None = None) -> tuple[str, date]:
     return home_id, day
 
 
+def parse_home_id_query(query: str) -> str:
+    params = parse_qs(query, keep_blank_values=True)
+    if set(params) != {"home_id"} or len(params["home_id"]) != 1:
+        raise ValueError("home_id를 하나만 지정하세요.")
+    home_id = params["home_id"][0]
+    if not HOME_ID_PATTERN.fullmatch(home_id):
+        raise ValueError("home_id는 영문, 숫자, 밑줄, 하이픈 1~128자여야 합니다.")
+    return home_id
+
+
+def parse_caregiver_payload(payload: object) -> dict[str, str]:
+    if not isinstance(payload, dict) or set(payload) != {
+        "home_id", "name", "relationship", "phone"
+    }:
+        raise ValueError("보호자 등록 필드를 확인해주세요.")
+    if any(not isinstance(payload.get(field), str) for field in payload):
+        raise ValueError("보호자 등록 필드를 확인해주세요.")
+    home_id = payload.get("home_id")
+    if not isinstance(home_id, str) or not HOME_ID_PATTERN.fullmatch(home_id.strip()):
+        raise ValueError("올바른 home_id가 필요합니다.")
+    name = " ".join(payload["name"].split())
+    relationship = " ".join(payload["relationship"].split())
+    raw_phone = re.sub(r"\s+", "", payload["phone"])
+    if not name or len(name) > 50:
+        raise ValueError("보호자 이름은 1~50자여야 합니다.")
+    if not relationship or len(relationship) > 50:
+        raise ValueError("관계는 1~50자여야 합니다.")
+    phone_match = re.fullmatch(r"(01[016789])-?(\d{3,4})-?(\d{4})", raw_phone)
+    if phone_match is None:
+        raise ValueError("휴대전화번호 형식을 확인해주세요.")
+    phone = "-".join(phone_match.groups())
+    if len(phone) > 20:
+        raise ValueError("휴대전화번호 형식을 확인해주세요.")
+    return {
+        "home_id": home_id.strip(),
+        "name": name,
+        "relationship": relationship,
+        "phone": phone,
+    }
+
+
 class PsqlRepository:
-    """Read all dashboard sources with one read-only psql statement."""
+    """Access the appliance service's narrowly scoped PostgreSQL data."""
 
     DASHBOARD_SQL = r"""
 WITH requested AS (
@@ -117,16 +167,77 @@ SELECT json_build_object(
 FROM reporting_rows
 """
 
+    CAREGIVERS_SQL = r"""
+SELECT json_build_object(
+    'id', c.thinq_id,
+    'name', c.caregiver_name,
+    'relationship', cm.relationship_name,
+    'phone', c.phone_number,
+    'role', cm.caregiver_role::text
+)::text
+FROM public.care_member cm
+JOIN public.caregiver c ON c.thinq_id = cm.caregiver_thinq_id
+WHERE cm.resident_thinq_id = :'home_id'
+  AND cm.caregiver_role = 'ADDITIONAL'
+ORDER BY lower(c.caregiver_name), c.thinq_id
+"""
+
+    REGISTER_CAREGIVER_SQL = r"""
+BEGIN;
+WITH resident AS (
+    SELECT thinq_id
+    FROM public.resident
+    WHERE thinq_id = :'home_id'
+), inserted_caregiver AS (
+    INSERT INTO public.caregiver (thinq_id, caregiver_name, phone_number)
+    SELECT :'caregiver_id', :'caregiver_name', :'phone_number'
+    FROM resident
+    ON CONFLICT (phone_number) DO NOTHING
+    RETURNING thinq_id, caregiver_name, phone_number
+), inserted_member AS (
+    INSERT INTO public.care_member (
+        resident_thinq_id, caregiver_thinq_id, caregiver_role, relationship_name
+    )
+    SELECT :'home_id', thinq_id, 'ADDITIONAL', :'relationship_name'
+    FROM inserted_caregiver
+    RETURNING resident_thinq_id, caregiver_thinq_id, caregiver_role, relationship_name
+), result AS (
+    SELECT CASE
+        WHEN NOT EXISTS (SELECT 1 FROM resident) THEN 'resident_not_found'
+        WHEN NOT EXISTS (SELECT 1 FROM inserted_caregiver) THEN 'duplicate_phone'
+        WHEN NOT EXISTS (SELECT 1 FROM inserted_member) THEN 'insert_failed'
+        ELSE 'inserted'
+    END AS status
+)
+SELECT json_build_object(
+    'status', result.status,
+    'guardian', CASE WHEN result.status = 'inserted' THEN json_build_object(
+        'id', :'caregiver_id',
+        'name', :'caregiver_name',
+        'relationship', :'relationship_name',
+        'phone', :'phone_number',
+        'role', 'ADDITIONAL'
+    ) ELSE NULL END
+)::text
+FROM result;
+COMMIT;
+"""
+
     def __init__(self, environ: dict[str, str] | None = None) -> None:
         self.environ = dict(os.environ if environ is None else environ)
         self.psql = self.environ.get("PSQL_BIN") or shutil.which("psql")
 
-    def _query(self, sql: str, params: dict[str, str] | None = None) -> list[str]:
+    def _run_psql(
+        self, sql: str, params: dict[str, str] | None = None, *, read_only: bool
+    ) -> list[str]:
         required = ("PGHOST", "PGDATABASE", "PGUSER", "PGPASSWORD")
         if not self.psql or any(not self.environ.get(name) for name in required):
             raise DatabaseUnavailable("Database configuration is incomplete")
         environment = self.environ.copy()
-        environment["PGOPTIONS"] = "-c default_transaction_read_only=on -c statement_timeout=5000"
+        environment["PGOPTIONS"] = (
+            "-c default_transaction_read_only=on -c statement_timeout=5000"
+            if read_only else "-c statement_timeout=5000"
+        )
         environment["PGCONNECT_TIMEOUT"] = "5"
         environment["PGPASSFILE"] = "/tmp/wifi-care-api-no-pgpass"
         command = [self.psql, "-X", "-w", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"]
@@ -143,6 +254,12 @@ FROM reporting_rows
             # stderr can contain connection details, so it is never propagated.
             raise DatabaseUnavailable("Database query failed") from error
         return [line for line in result.stdout.splitlines() if line]
+
+    def _query(self, sql: str, params: dict[str, str] | None = None) -> list[str]:
+        return self._run_psql(sql, params, read_only=True)
+
+    def _write_query(self, sql: str, params: dict[str, str]) -> list[str]:
+        return self._run_psql(sql, params, read_only=False)
 
     def fetch_daily_data(self, home_id: str, day: date) -> dict:
         if not HOME_ID_PATTERN.fullmatch(home_id):
@@ -166,6 +283,53 @@ FROM reporting_rows
         if not all(isinstance(payloads[name], list) for name in payloads):
             raise DatabaseUnavailable("Database returned invalid dashboard data")
         return payloads
+
+    def list_caregivers(self, home_id: str) -> list[dict]:
+        if not HOME_ID_PATTERN.fullmatch(home_id):
+            raise ValueError("Invalid home_id")
+        rows = self._query(self.CAREGIVERS_SQL, {"home_id": home_id})
+        try:
+            guardians = [json.loads(row) for row in rows]
+        except (json.JSONDecodeError, TypeError) as error:
+            raise DatabaseUnavailable("Database returned invalid caregiver data") from error
+        required = {"id", "name", "relationship", "phone", "role"}
+        if any(
+            not isinstance(guardian, dict)
+            or set(guardian) != required
+            or not all(isinstance(guardian[key], str) for key in required)
+            or guardian["role"] != "ADDITIONAL"
+            for guardian in guardians
+        ):
+            raise DatabaseUnavailable("Database returned invalid caregiver data")
+        return guardians
+
+    def register_caregiver(self, values: dict[str, str]) -> dict:
+        caregiver_id = f"caregiver_share_{uuid.uuid4().hex}"
+        rows = self._write_query(
+            self.REGISTER_CAREGIVER_SQL,
+            {
+                "home_id": values["home_id"],
+                "caregiver_id": caregiver_id,
+                "caregiver_name": values["name"],
+                "relationship_name": values["relationship"],
+                "phone_number": values["phone"],
+            },
+        )
+        if len(rows) != 1:
+            raise DatabaseUnavailable("Database returned invalid caregiver result")
+        try:
+            document = json.loads(rows[0])
+        except json.JSONDecodeError as error:
+            raise DatabaseUnavailable("Database returned invalid caregiver result") from error
+        status = document.get("status") if isinstance(document, dict) else None
+        if status == "resident_not_found":
+            raise ResidentNotFound()
+        if status == "duplicate_phone":
+            raise DuplicateCaregiverPhone()
+        guardian = document.get("guardian") if status == "inserted" else None
+        if not isinstance(guardian, dict) or guardian.get("id") != caregiver_id:
+            raise DatabaseUnavailable("Database returned invalid caregiver result")
+        return guardian
 
     # Compatibility for internal callers of the original repository API.
     def list_events(self, home_id: str, day: date) -> tuple[str, list[dict]]:
@@ -490,7 +654,10 @@ def build_daily_response(home_id: str, day: date, snapshot: dict, *, now: dateti
 
 
 def create_handler(repository: PsqlRepository, allowed_origins: set[str], now_provider: Callable[[], datetime] = seoul_now):
-    allowed_paths = {"/api/server-date", "/api/appliances/daily", "/api/care/dashboard"}
+    allowed_paths = {
+        "/api/server-date", "/api/appliances/daily", "/api/care/dashboard",
+        "/api/caregivers",
+    }
 
     class ApplianceHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -521,7 +688,7 @@ def create_handler(repository: PsqlRepository, allowed_origins: set[str], now_pr
                 return
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.send_header("Vary", "Origin")
             self.end_headers()
@@ -545,6 +712,18 @@ def create_handler(repository: PsqlRepository, allowed_origins: set[str], now_pr
                     no_store=True,
                 )
                 return
+            if url.path == "/api/caregivers":
+                try:
+                    home_id = parse_home_id_query(url.query)
+                    guardians = repository.list_caregivers(home_id)
+                except ValueError as error:
+                    self._send_json(400, {"error": {"code": "invalid_request", "message": str(error)}})
+                    return
+                except DatabaseUnavailable:
+                    self._send_json(503, {"error": {"code": "database_unavailable", "message": "보호자 목록을 불러올 수 없습니다."}})
+                    return
+                self._send_json(200, {"guardians": guardians}, no_store=True)
+                return
             try:
                 home_id, day = parse_inputs(url.query, today=current.date())
             except ValueError as error:
@@ -557,6 +736,46 @@ def create_handler(repository: PsqlRepository, allowed_origins: set[str], now_pr
                 self._send_json(503, {"error": {"code": "database_unavailable", "message": "돌봄 데이터를 불러올 수 없습니다."}})
                 return
             self._send_json(200, response)
+
+        def do_POST(self) -> None:
+            url = urlsplit(self.path)
+            if url.path != "/api/caregivers" or url.query:
+                self._send_json(404, {"error": {"code": "not_found", "message": "Not found"}})
+                return
+            origin = self.headers.get("Origin")
+            if origin is not None and origin not in allowed_origins:
+                self._send_json(403, {"error": {"code": "origin_not_allowed", "message": "Origin not allowed"}})
+                return
+            if self.headers.get_content_type() != "application/json":
+                self._send_json(415, {"error": {"code": "unsupported_media_type", "message": "JSON 요청이 필요합니다."}})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = -1
+            if length < 2 or length > 8192:
+                self._send_json(400, {"error": {"code": "invalid_request", "message": "요청 본문을 확인해주세요."}})
+                return
+            try:
+                payload = json.loads(self.rfile.read(length))
+                values = parse_caregiver_payload(payload)
+                guardian = repository.register_caregiver(values)
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": {"code": "invalid_request", "message": "요청 본문을 확인해주세요."}})
+                return
+            except ValueError as error:
+                self._send_json(400, {"error": {"code": "invalid_request", "message": str(error)}})
+                return
+            except ResidentNotFound:
+                self._send_json(404, {"error": {"code": "resident_not_found", "message": "등록된 생활자를 찾을 수 없습니다."}})
+                return
+            except DuplicateCaregiverPhone:
+                self._send_json(409, {"error": {"code": "duplicate_phone", "message": "이미 등록된 휴대전화번호입니다."}})
+                return
+            except DatabaseUnavailable:
+                self._send_json(503, {"error": {"code": "database_unavailable", "message": "보호자를 등록할 수 없습니다."}})
+                return
+            self._send_json(201, {"guardian": guardian}, no_store=True)
 
     return ApplianceHandler
 

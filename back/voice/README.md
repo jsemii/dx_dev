@@ -80,7 +80,7 @@ cd /Users/jangsemi/dx_dev/wifi-care-project/back/voice
 
 스케줄러는 `Asia/Seoul` 기준으로 활성화된 식사·복약 알림을 짧은 유예시간
 안에서 조회하고, 생활자가 소유한 목소리 중 인증이 끝난 가장 최근 목소리로
-고정 문구(`MEAL`: `밥 먹어요`, `MEDICATION`: `약 먹어요`)를 생성합니다.
+고정 문구(`MEAL`: `엄마~~ 밥 먹어요~~`, `MEDICATION`: `엄마~~ 약 먹어요~~`)를 생성합니다.
 브라우저 요청에서는 문구나 공급자 voice ID를 받지 않습니다. 생성된 MP3는
 공유 내부 토큰으로 인증한 Anger API를 거쳐 현재 활성 `/player` 소켓으로만
 전달됩니다.

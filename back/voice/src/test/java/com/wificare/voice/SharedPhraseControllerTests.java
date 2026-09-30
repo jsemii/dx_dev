@@ -69,10 +69,10 @@ class SharedPhraseControllerTests {
     @Test
     void fixedFrontendPhrasesAreNeverStoredAsUserPhrases() {
         assertThatThrownBy(() -> controller.add(
-                new SharedPhraseController.AddRequest("home_23", "  밥 먹어요  ")))
+                new SharedPhraseController.AddRequest("home_23", "  엄마~~ 밥 먹어요~~  ")))
                 .isInstanceOf(DuplicateSharedPhraseException.class);
         assertThatThrownBy(() -> controller.add(
-                new SharedPhraseController.AddRequest("home_23", "약 먹어요")))
+                new SharedPhraseController.AddRequest("home_23", "엄마~~ 약 먹어요~~")))
                 .isInstanceOf(DuplicateSharedPhraseException.class);
         verifyNoInteractions(profiles);
     }
@@ -128,7 +128,7 @@ class SharedPhraseControllerTests {
     @Test
     void updateRejectsDefaultsInvalidTextAndInvalidUuidBeforeDatabaseAccess() {
         assertThatThrownBy(() -> controller.update(PHRASE_ID.toString(),
-                new SharedPhraseController.UpdateRequest("home_23", "밥 먹어요")))
+                new SharedPhraseController.UpdateRequest("home_23", "엄마~~ 밥 먹어요~~")))
                 .isInstanceOf(DuplicateSharedPhraseException.class);
         assertThatThrownBy(() -> controller.update(PHRASE_ID.toString(),
                 new SharedPhraseController.UpdateRequest("home_23", " ")))
